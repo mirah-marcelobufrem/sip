@@ -1,0 +1,20 @@
+# Secrets — never commit
+.env
+
+# Local scratch space
+local/
+
+# OS artifacts
+.DS_Store
+
+# Node
+node_modules/
+
+# Agent artifacts
+.claude/agents/
+
+# nginx generated config — built from nginx/n8n.conf.template via scripts/generate-nginx-conf.sh
+nginx/n8n.conf
+
+# Local files
+.work/
