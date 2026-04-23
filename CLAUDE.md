@@ -19,6 +19,9 @@ SIP Scout — basketball scouting and live stat tracking app. Full spec: [.work/
 | AI | Anthropic Claude API (`@anthropic-ai/sdk`) |
 | Containers | Docker Compose (dev), docker-compose.prod.yml (production/AWS) |
 | Proxy | nginx (production container + nginx.conf.template) |
+| Push notifications | Web Push (VAPID via `web-push`) |
+| PWA | vite-plugin-pwa + Workbox service worker |
+| E2E tests | Playwright (`frontend/e2e/`) |
 | CI/CD | GitHub Actions (.github/workflows/ci.yml + deploy.yml) |
 
 ## Common Commands
@@ -39,6 +42,7 @@ cd backend && npm run db:generate  # after schema changes
 cd frontend && npm run dev         # http://localhost:5173
 cd frontend && npm run typecheck
 cd frontend && npm test
+cd frontend && npx playwright test  # E2E (requires running stack)
 
 # nginx config
 bash nginx/generate-nginx-conf.sh  # DOMAIN=example.com bash nginx/generate-nginx-conf.sh
@@ -68,6 +72,7 @@ domain/ → application/ → infrastructure/ → presentation/
 - `database/connection.ts` — singleton pool + `getDb()`
 - `auth/jwt.ts` — token generation + verification
 - `auth/token-hash.ts` — SHA-256 hash for refresh tokens
+- `push/webpush.service.ts` — Web Push sender; no-ops when VAPID keys are not configured
 
 ### backend/src/presentation/ — Express routes + middleware
 
@@ -77,10 +82,15 @@ domain/ → application/ → infrastructure/ → presentation/
 
 ### frontend/src/
 
-- `features/` — page-level modules (auth, teams, players, games, live, analytics, scouting, tournaments)
-- `components/` — shared UI: AppShell, ShotChart (custom SVG), charts (Recharts)
+- `features/` — page-level modules (auth, teams, players, games, live, analytics, scouting, tournaments, settings)
+- `components/` — shared UI: AppShell, ShotChart (custom SVG), charts (Recharts), Toast, ConflictResolutionDialog
 - `lib/api.ts` — the ONLY file that fetches from the backend; auto-refreshes token on 401
+- `lib/offlineQueue.ts` — IndexedDB queue for stat events recorded offline; flushed on reconnect
 - `store/auth.store.ts` — Zustand + persist; holds accessToken, refreshToken, user
+- `store/theme.store.ts` — Zustand + persist; holds theme (system/light/dark); calls `initTheme()` on app boot
+- `hooks/useSettings.ts` — TanStack Query wrapper for GET/PUT /settings
+- `hooks/usePushNotifications.ts` — VAPID subscription lifecycle (request permission → subscribe → save to backend)
+- `hooks/useGameAlerts.ts` — pure alert detection (foul bonus, foul trouble, scoring run) + polling hook
 
 ## Key Domain Rules
 
@@ -131,9 +141,9 @@ DOMAIN=yourdomain.com bash nginx/generate-nginx-conf.sh # production
 
 ## Gitflow
 
-```
+```text
 main ← release/* ← develop ← feature/*
 ```
 
-Active branch: `feature/basketball-scout-app` (from `develop`).
+Active branch: `feature/wave-6-notifications-pwa` (from `develop`).
 Never commit directly to `main` or `develop`.

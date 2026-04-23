@@ -5,6 +5,7 @@ const navItems = [
   { to: '/teams', label: 'Teams', icon: '🏀' },
   { to: '/scouting', label: 'Scouting', icon: '🔍' },
   { to: '/tournaments', label: 'Tournaments', icon: '🏆' },
+  { to: '/settings', label: 'Settings', icon: '⚙️' },
 ];
 
 export default function AppShell() {
@@ -42,7 +43,15 @@ export default function AppShell() {
           ))}
         </nav>
         <div className="p-4 border-t border-gray-200 dark:border-gray-800">
-          <div className="text-xs text-gray-500 dark:text-gray-400 mb-2 truncate">{user?.email}</div>
+          <div className="text-xs text-gray-500 dark:text-gray-400 mb-1 truncate">{user?.email}</div>
+          <NavLink
+            to="/account"
+            className={({ isActive }) =>
+              `block text-sm mb-1 transition-colors ${isActive ? 'text-brand-600 dark:text-brand-400 font-medium' : 'text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-200'}`
+            }
+          >
+            Account
+          </NavLink>
           <button
             onClick={handleLogout}
             className="w-full text-left text-sm text-gray-600 hover:text-red-600 dark:text-gray-400 dark:hover:text-red-400 transition-colors"

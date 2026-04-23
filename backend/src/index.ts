@@ -11,6 +11,9 @@ import scoutingRoutes from './presentation/routes/scouting.routes.js';
 import tournamentsRoutes, { publicTournamentsRouter } from './presentation/routes/tournaments.routes.js';
 import aiRoutes from './presentation/routes/ai.routes.js';
 import exportRoutes from './presentation/routes/export.routes.js';
+import settingsRoutes from './presentation/routes/settings.routes.js';
+import notificationsRoutes from './presentation/routes/notifications.routes.js';
+import accountRoutes from './presentation/routes/account.routes.js';
 import { errorMiddleware } from './presentation/middleware/error.middleware.js';
 
 const app = express();
@@ -38,6 +41,9 @@ app.use('/api/v1/tournaments', tournamentsRoutes);
 app.use('/api/v1', publicTournamentsRouter());
 app.use('/api/v1/ai', aiRoutes);
 app.use('/api/v1/export', exportRoutes);
+app.use('/api/v1/settings', settingsRoutes);
+app.use('/api/v1/notifications', notificationsRoutes);
+app.use('/api/v1/account', accountRoutes);
 
 app.use(errorMiddleware);
 
