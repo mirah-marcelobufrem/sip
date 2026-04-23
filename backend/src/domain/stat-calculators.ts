@@ -142,6 +142,50 @@ export function classifyShotZone(x: number, y: number): string {
   return 'top_arc_3';
 }
 
+export interface TeamEfficiency {
+  ortg: number | null;
+  drtg: number | null;
+  nrtg: number | null;
+  pace: number | null;
+  possessions: number;
+}
+
+export function computeTeamEfficiency(
+  teamPts: number,
+  oppPts: number,
+  teamFga: number,
+  teamOreb: number,
+  teamTo: number,
+  teamFta: number,
+  periodDurationMinutes: number,
+  numPeriods: number,
+): TeamEfficiency {
+  const totalMinutes = periodDurationMinutes * numPeriods;
+  const possessions = teamFga - teamOreb + teamTo + 0.44 * teamFta;
+  if (possessions <= 0) return { ortg: null, drtg: null, nrtg: null, pace: null, possessions: 0 };
+  const ortg = (100 * teamPts) / possessions;
+  const drtg = (100 * oppPts) / possessions;
+  const nrtg = ortg - drtg;
+  const pace = totalMinutes > 0 ? (possessions / totalMinutes) * 40 : null;
+  return { ortg, drtg, nrtg, pace, possessions };
+}
+
+export function buildGameFlowPoints(
+  events: StatEvent[],
+  homeTeamId: string,
+): { period: number; clock: number | null; homeScore: number; awayScore: number }[] {
+  const scoringEvents = events.filter((e) => ['2PM', '3PM', 'FTM'].includes(e.statType) && e.teamId);
+  const points: ReturnType<typeof buildGameFlowPoints> = [{ period: 1, clock: null, homeScore: 0, awayScore: 0 }];
+  let home = 0;
+  let away = 0;
+  for (const e of scoringEvents) {
+    const pts = e.statType === '3PM' ? 3 : e.statType === 'FTM' ? 1 : 2;
+    if (e.teamId === homeTeamId) home += pts; else away += pts;
+    points.push({ period: e.period, clock: e.clockTimeSeconds, homeScore: home, awayScore: away });
+  }
+  return points;
+}
+
 export function detectScoringRuns(
   events: StatEvent[],
   threshold = 5,

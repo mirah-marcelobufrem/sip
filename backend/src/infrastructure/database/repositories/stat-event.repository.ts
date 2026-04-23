@@ -35,6 +35,14 @@ export class DrizzleStatEventRepository implements IStatEventRepository {
     return rows.map(this.toEntity);
   }
 
+  async findByPlayer(playerId: string): Promise<StatEvent[]> {
+    const rows = await this.db
+      .select()
+      .from(statEvents)
+      .where(and(eq(statEvents.playerId, playerId), isNull(statEvents.deletedAt)));
+    return rows.map(this.toEntity);
+  }
+
   async findByGameAndTeam(gameId: string, teamId: string): Promise<StatEvent[]> {
     const rows = await this.db
       .select()
