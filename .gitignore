@@ -9,12 +9,13 @@ local/
 
 # Node
 node_modules/
+dist/
 
 # Agent artifacts
 .claude/agents/
 
-# nginx generated config — built from nginx/n8n.conf.template via scripts/generate-nginx-conf.sh
-nginx/n8n.conf
+# nginx generated config — run: bash nginx/generate-nginx-conf.sh
+nginx/nginx.conf
 
 # Local files
 .work/
