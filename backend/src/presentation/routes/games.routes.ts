@@ -1,6 +1,7 @@
-import { Router } from 'express';
+import { Router, type Request } from 'express';
 import { z } from 'zod';
 import { getDb } from '../../infrastructure/database/connection.js';
+import { DrizzleGameRepository } from '../../infrastructure/database/repositories/game.repository.js';
 import { DrizzleStatEventRepository } from '../../infrastructure/database/repositories/stat-event.repository.js';
 import { DrizzleLineupSnapshotRepository } from '../../infrastructure/database/repositories/lineup-snapshot.repository.js';
 import { recordStatEvent, RecordStatEventInput } from '../../application/games/recordStatEvent.js';
@@ -102,6 +103,75 @@ router.get('/:gameId/flow', async (req, res, next) => {
     const flowPoints: { period: number; clock: number | null; homeScore: number; awayScore: number }[] = [];
 
     res.json({ flowPoints, scoringRuns: runs });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.get('/:gameId/lineups', async (req: Request<{ gameId: string }>, res, next) => {
+  try {
+    const db = getDb();
+    const lineups = await new DrizzleLineupSnapshotRepository(db).findByGame(req.params.gameId);
+    res.json(lineups);
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.get('/:gameId', async (req: Request<{ gameId: string }>, res, next) => {
+  try {
+    const db = getDb();
+    const game = await new DrizzleGameRepository(db).findById(req.params.gameId);
+    if (!game) { res.status(404).json({ error: 'Game not found', code: 'NOT_FOUND' }); return; }
+    res.json(game);
+  } catch (err) {
+    next(err);
+  }
+});
+
+const PatchGameBody = z.object({
+  currentPeriod: z.number().int().min(1).optional(),
+  status: z.enum(['scheduled', 'live', 'completed', 'cancelled']).optional(),
+  finalScoreHome: z.number().int().min(0).optional(),
+  finalScoreAway: z.number().int().min(0).optional(),
+  location: z.string().optional(),
+  notes: z.string().optional(),
+});
+
+router.patch('/:gameId', async (req: Request<{ gameId: string }>, res, next) => {
+  try {
+    const body = PatchGameBody.parse(req.body);
+    const db = getDb();
+    const game = await new DrizzleGameRepository(db).update(req.params.gameId, body);
+    res.json(game);
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post('/:gameId/start', async (req: Request<{ gameId: string }>, res, next) => {
+  try {
+    const db = getDb();
+    const game = await new DrizzleGameRepository(db).update(req.params.gameId, { status: 'live' });
+    res.json(game);
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post('/:gameId/complete', async (req: Request<{ gameId: string }>, res, next) => {
+  try {
+    const body = z.object({
+      finalScoreHome: z.number().int().min(0),
+      finalScoreAway: z.number().int().min(0),
+    }).parse(req.body);
+    const db = getDb();
+    const game = await new DrizzleGameRepository(db).update(req.params.gameId, {
+      status: 'completed',
+      finalScoreHome: body.finalScoreHome,
+      finalScoreAway: body.finalScoreAway,
+    });
+    res.json(game);
   } catch (err) {
     next(err);
   }

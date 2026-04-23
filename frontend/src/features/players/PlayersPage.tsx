@@ -1,5 +1,6 @@
+import { useState } from 'react';
 import { useParams } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../../lib/api';
 
 interface Player {
@@ -18,18 +19,47 @@ const STATUS_BADGE: Record<string, string> = {
   transferred: 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400',
 };
 
+const POSITIONS = ['PG', 'SG', 'SF', 'PF', 'C'];
+
 export default function PlayersPage() {
   const { teamId } = useParams<{ teamId: string }>();
+  const queryClient = useQueryClient();
+  const [showAdd, setShowAdd] = useState(false);
+  const [firstName, setFirstName] = useState('');
+  const [lastName, setLastName] = useState('');
+  const [jersey, setJersey] = useState('');
+  const [position, setPosition] = useState('');
+
   const { data: players = [], isLoading } = useQuery<Player[]>({
     queryKey: ['players', teamId],
     queryFn: () => api.get(`/teams/${teamId}/players`),
   });
 
+  const addMutation = useMutation({
+    mutationFn: (data: object) => api.post(`/teams/${teamId}/players`, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['players', teamId] });
+      setShowAdd(false);
+      setFirstName('');
+      setLastName('');
+      setJersey('');
+      setPosition('');
+    },
+  });
+
+  const activePlayers = players.filter((p) => p.status !== 'hidden' && p.status !== 'transferred');
+
   return (
     <div className="p-6 max-w-4xl mx-auto">
       <div className="flex items-center justify-between mb-6">
-        <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">Roster</h1>
-        <button className="px-4 py-2 bg-brand-600 hover:bg-brand-700 text-white rounded-lg text-sm font-medium transition-colors">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">Roster</h1>
+          <p className="text-sm text-gray-500 mt-0.5">{activePlayers.length} active players</p>
+        </div>
+        <button
+          onClick={() => setShowAdd(true)}
+          className="px-4 py-2 bg-brand-600 hover:bg-brand-700 text-white rounded-lg text-sm font-medium transition-colors"
+        >
           + Add Player
         </button>
       </div>
@@ -71,6 +101,82 @@ export default function PlayersPage() {
           <p className="text-center text-gray-400 py-10">No players yet. Add your first player.</p>
         )}
       </div>
+
+      {showAdd && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
+          <div className="bg-white dark:bg-gray-900 rounded-xl p-6 w-full max-w-md shadow-elevated">
+            <h2 className="text-lg font-semibold mb-4 text-gray-900 dark:text-gray-100">Add Player</h2>
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                addMutation.mutate({
+                  firstName,
+                  lastName,
+                  jerseyNumber: jersey !== '' ? Number(jersey) : undefined,
+                  position: position || undefined,
+                });
+              }}
+              className="space-y-4"
+            >
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">First name</label>
+                  <input
+                    value={firstName}
+                    onChange={(e) => setFirstName(e.target.value)}
+                    required
+                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg text-sm bg-white dark:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-brand-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Last name</label>
+                  <input
+                    value={lastName}
+                    onChange={(e) => setLastName(e.target.value)}
+                    required
+                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg text-sm bg-white dark:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-brand-500"
+                  />
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Jersey #</label>
+                  <input
+                    type="number"
+                    min={0}
+                    max={99}
+                    value={jersey}
+                    onChange={(e) => setJersey(e.target.value)}
+                    placeholder="0–99"
+                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg text-sm bg-white dark:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-brand-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Position</label>
+                  <select
+                    value={position}
+                    onChange={(e) => setPosition(e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg text-sm bg-white dark:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-brand-500"
+                  >
+                    <option value="">—</option>
+                    {POSITIONS.map((p) => <option key={p} value={p}>{p}</option>)}
+                  </select>
+                </div>
+              </div>
+              <div className="flex gap-2 justify-end">
+                <button type="button" onClick={() => setShowAdd(false)} className="px-4 py-2 text-sm text-gray-600 hover:text-gray-800">Cancel</button>
+                <button
+                  type="submit"
+                  disabled={addMutation.isPending}
+                  className="px-4 py-2 bg-brand-600 hover:bg-brand-700 text-white rounded-lg text-sm font-medium disabled:opacity-60"
+                >
+                  {addMutation.isPending ? 'Adding…' : 'Add Player'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
