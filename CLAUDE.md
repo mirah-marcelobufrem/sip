@@ -2,64 +2,268 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## Project Status
+## What This Is
 
-This is a greenfield project. No application source code exists yet — only git config, agent definitions, and `.gitignore` conventions are in place.
+SIP Scout — basketball scouting and live stat tracking app. Full spec: [.work/project_spec.txt](.work/project_spec.txt). Implementation plan with 6 waves × 12 sprints: [.work/plan.txt](.work/plan.txt).
 
-## Intended Stack (inferred from agent definitions and .gitignore)
+## Tech Stack
 
 | Layer | Technology |
-|---|---|
-| Reverse proxy | nginx |
-| Workflow automation | n8n |
-| Backend | Node.js / Express.js / TypeScript |
-| Database | PostgreSQL |
-| Frontend | React 18 / TypeScript / CSS Modules |
-| Containerization | Docker Compose |
-| CI/CD | GitHub Actions |
+| --- | --- |
+| Frontend | React 19, Vite 6, Tailwind CSS v4, TanStack Query v5, React Router v7, Zustand v5 |
+| Backend | Express 5, Node.js 22 LTS, TypeScript strict |
+| ORM | Drizzle ORM + Drizzle Kit |
+| Auth | JWT (jose) + bcrypt; access token 15 min, refresh token 7 days |
+| Database | PostgreSQL 17 |
+| Charts | Recharts (data charts), custom SVG (shot chart) |
+| AI | Anthropic Claude API (`@anthropic-ai/sdk`) |
+| PDF export | Puppeteer (headless Chrome) |
+| Push notifications | Web Push (VAPID via `web-push`) |
+| PWA | vite-plugin-pwa + Workbox service worker |
+| E2E tests | Playwright (`frontend/e2e/`) |
+| Containers | Docker Compose (dev), docker-compose.prod.yml (production/AWS) |
+| Proxy | nginx (production container + nginx.conf.template) |
+| CI/CD | GitHub Actions (.github/workflows/ci.yml + deploy.yml) |
 
-## Infrastructure Conventions
-
-**nginx config generation** — `nginx/n8n.conf` is generated (not committed). Always regenerate it before building:
+## Common Commands
 
 ```bash
-bash scripts/generate-nginx-conf.sh
+# Full stack (Docker Desktop)
+docker compose up
+
+# Backend dev
+cd backend && npm run dev         # http://localhost:3001
+cd backend && npm run typecheck
+cd backend && npm run test:unit
+cd backend && npm run test:integration
+cd backend && npm run db:migrate
+cd backend && npm run db:generate  # after schema changes
+
+# Frontend dev
+cd frontend && npm run dev         # http://localhost:5173
+cd frontend && npm run typecheck
+cd frontend && npm test
+cd frontend && npx playwright test  # E2E (requires running stack)
+
+# nginx config
+bash nginx/generate-nginx-conf.sh  # DOMAIN=example.com bash nginx/generate-nginx-conf.sh
 ```
 
-**Local scratch space** — place exploratory files, temporary outputs, and local-only notes in `local/` or `.work/`. Both are gitignored.
+## Architecture — Clean Architecture (Hexagonal)
 
-**Secrets** — never commit `.env`. Copy from `.env.example` if it exists; create one if scaffolding a new service.
+```text
+domain/ → application/ → infrastructure/ → presentation/
+```
 
-## Agent System
+### backend/src/domain/ — zero external imports
 
-Custom agent definitions live in `.claude/agents/` (gitignored — local only). Available agents:
+- `entities/` — plain TypeScript interfaces (User, Player, Game, StatEvent…)
+- `repositories/` — repository interfaces (ports)
+- `stat-calculators.ts` — all derived stat logic (eFG%, TS%, +/-, shot zone, run detection)
 
-| File | Role |
-|---|---|
-| `engineering-backend-architect.md` | System design, DB schema, API architecture |
-| `engineering-frontend-developer.md` | React/TypeScript UI, performance, accessibility |
-| `engineering-software-architect.md` | ADRs, bounded contexts, trade-off analysis |
-| `engineering-senior-developer.md` | Laravel/Livewire/FluxUI premium implementation |
-| `engineering-devops-automator.md` | Docker, CI/CD, cloud infrastructure |
-| `design-ui-designer.md` | Design tokens, component libraries, WCAG compliance |
-| `automation-governance-architect.md` | n8n workflow governance and approval |
-| `testing-api-tester.md` | API validation and integration testing |
-| `testing-reality-checker.md` | Evidence-based production readiness gating |
+### backend/src/application/ — imports domain only
 
-Invoke via `@agent-name` in Claude Code or use the Agent tool with the matching `subagent_type`.
+- One file per use case: `registerUser.ts`, `loginUser.ts`, `recordStatEvent.ts`, `recordSubstitution.ts`…
+- Each use case is a single exported async function; dependencies injected as parameters
+- **Zod parse pattern:** every use case calls `Schema.parse(rawInput)` internally — never rely on route-level validation alone
+- **Input type pattern:** use `z.input<typeof Schema>` for function parameters when the schema has `.default()` fields, so callers don't need to supply defaulted values (e.g. `RecordStatEventRawInput`)
 
-## n8n Workflow Conventions
+### backend/src/infrastructure/ — implements domain interfaces
 
-All production workflows must follow the 10-stage pipeline defined in `automation-governance-architect.md`:
+- `database/schema/` — Drizzle table definitions (one file per entity group)
+- `database/repositories/` — Drizzle implementations of domain repository interfaces
+- `database/connection.ts` — singleton pool + `getDb()`
+- `auth/jwt.ts` — token generation + verification
+- `auth/token-hash.ts` — SHA-256 hash for refresh tokens
+- `push/webpush.service.ts` — Web Push sender; no-ops when VAPID keys are not configured
 
-`Trigger → Validation → Normalization → Business Logic → External Actions → Result Validation → Logging → Error Branch → Fallback → Completion`
+### backend/src/presentation/ — Express routes + middleware
 
-Naming: `[ENV]-[SYSTEM]-[PROCESS]-[ACTION]-v[MAJOR.MINOR]`  
-Example: `PROD-CRM-LeadIntake-CreateRecord-v1.0`
+- Routes instantiate repository classes and call use cases
+- `middleware/auth.middleware.ts` — JWT authenticate + requireRole; augments `Express.Request` with `req.userId: string` and `req.userRole?: TeamRole` (NOT `req.user`)
+- `middleware/error.middleware.ts` — maps error codes to HTTP status
 
-## Architecture Guardrails
+### frontend/src/
 
-- All DB migrations must be idempotent (`CREATE TABLE IF NOT EXISTS`, `ADD COLUMN IF NOT EXISTS`)
-- Schema changes go inside the existing `initDB()` — no new migration files
-- CSS always uses design tokens via `var(--token)` — no hardcoded colors, shadows, or radius values
-- Frontend never imports from `infrastructure/` or `domain/` — only calls use cases via props
+- `features/` — page-level modules: auth, teams, players, games, live, analytics, scouting, tournaments, settings
+- `components/` — shared UI: AppShell, ShotChart (custom SVG), charts (Recharts), Toast, ConflictResolutionDialog
+- `lib/api.ts` — the ONLY file that fetches from the backend; auto-refreshes token on 401
+- `lib/offlineQueue.ts` — IndexedDB queue for stat events recorded offline; flushed on `window.online`
+- `store/auth.store.ts` — Zustand + persist; holds accessToken, refreshToken, user
+- `store/theme.store.ts` — Zustand + persist; holds theme (system/light/dark); call `initTheme()` on app boot
+- `hooks/useSettings.ts` — TanStack Query wrapper for GET/PUT /settings; `UserPreferences` type (language, units, theme, game format, foul limits, shot chart, opponent tracking, notification toggles, colors)
+- `hooks/usePushNotifications.ts` — VAPID subscription lifecycle (request permission → subscribe → save to backend); `PushStatus: 'unsupported' | 'denied' | 'granted' | 'prompt' | 'subscribing'`
+- `hooks/useGameAlerts.ts` — pure alert detection (foul bonus, foul trouble, scoring run) + interval polling hook with `seenIds` dedup
+
+## Frontend Routes
+
+| Path | Component |
+| --- | --- |
+| `/login` | LoginPage |
+| `/register` | RegisterPage |
+| `/bracket/:token` | PublicBracketPage (no auth) |
+| `/teams` | TeamsPage |
+| `/teams/:teamId/players` | PlayersPage |
+| `/teams/:teamId/players/:playerId` | PlayerCardPage |
+| `/teams/:teamId/games` | GamesPage |
+| `/games/:gameId/live` | LiveRecordingPage |
+| `/games/:gameId/box-score` | BoxScorePage |
+| `/teams/:teamId/analytics` | AnalyticsDashboard |
+| `/scouting` | ScoutingPage |
+| `/tournaments` | TournamentsPage |
+| `/tournaments/:id` | TournamentDetailPage |
+| `/settings` | SettingsPage |
+| `/account` | AccountPage |
+
+## API Surface (all under `/api/v1`)
+
+| Method | Path | Auth | Description |
+| --- | --- | --- | --- |
+| POST | `/auth/register` | — | Register (rate-limited) |
+| POST | `/auth/login` | — | Login (rate-limited) |
+| POST | `/auth/refresh` | — | Refresh access token |
+| POST | `/auth/logout` | ✓ | Revoke refresh token |
+| GET | `/auth/me` | ✓ | Current user profile |
+| GET | `/teams` | ✓ | List teams for user |
+| POST | `/teams` | ✓ | Create team |
+| GET | `/teams/:id` | ✓ | Get team |
+| PUT | `/teams/:id` | ✓ | Update team |
+| DELETE | `/teams/:id` | ✓ | Delete team |
+| GET | `/teams/:id/members` | ✓ | List team members |
+| GET | `/teams/:teamId/players` | ✓ | List players |
+| POST | `/teams/:teamId/players` | ✓ | Create player |
+| GET | `/teams/:teamId/players/:id` | ✓ | Get player |
+| PUT | `/teams/:teamId/players/:id` | ✓ | Update player |
+| DELETE | `/teams/:teamId/players/:id` | ✓ | Delete player |
+| GET | `/teams/:teamId/games` | ✓ | List games |
+| POST | `/teams/:teamId/games` | ✓ | Create game |
+| GET | `/teams/:teamId/games/season-stats` | ✓ | Season aggregate stats |
+| GET | `/games/:gameId` | ✓ | Get game |
+| PATCH | `/games/:gameId` | ✓ | Update game |
+| POST | `/games/:gameId/start` | ✓ | Start game |
+| POST | `/games/:gameId/complete` | ✓ | Complete game |
+| POST | `/games/:gameId/events` | ✓ | Record stat event |
+| DELETE | `/games/:gameId/events/:eventId` | ✓ | Delete stat event |
+| POST | `/games/:gameId/lineups` | ✓ | Record lineup snapshot |
+| GET | `/games/:gameId/log` | ✓ | Event log |
+| GET | `/games/:gameId/box-score` | ✓ | Box score |
+| GET | `/games/:gameId/flow` | ✓ | Score flow |
+| GET | `/games/:gameId/lineups` | ✓ | Lineup snapshots |
+| GET | `/players/:playerId/shot-chart` | ✓ | Player shot chart |
+| GET | `/teams/:teamId/players/season-stats` | ✓ | Team season stats |
+| GET | `/teams/:teamId/lineup-stats` | ✓ | Lineup analytics |
+| GET | `/teams/:teamId/on-off/:playerId` | ✓ | On/off analysis |
+| GET | `/teams/:teamId/efficiency` | ✓ | Efficiency metrics |
+| GET | `/teams/:teamId/players/:playerId/shot-chart` | ✓ | Player+team shot chart |
+| GET | `/games/:gameId/player-stats` | ✓ | Game player stats |
+| GET | `/scouting-reports` | ✓ | List reports |
+| POST | `/scouting-reports` | ✓ | Create report |
+| GET | `/scouting-reports/:id` | ✓ | Get report |
+| PUT | `/scouting-reports/:id` | ✓ | Update report |
+| DELETE | `/scouting-reports/:id` | ✓ | Delete report |
+| POST | `/scouting-reports/:id/share` | ✓ | Share report |
+| GET | `/tournaments` | ✓ | List tournaments |
+| POST | `/tournaments` | ✓ | Create tournament |
+| GET | `/tournaments/:id` | ✓ | Get tournament |
+| PUT | `/tournaments/:id` | ✓ | Update tournament |
+| DELETE | `/tournaments/:id` | ✓ | Delete tournament |
+| GET | `/tournaments/:id/bracket` | ✓ | Bracket |
+| PATCH | `/tournaments/:id/slots/:slotId` | ✓ | Update bracket slot |
+| GET | `/tournaments/:id/standings` | ✓ | Standings |
+| POST | `/tournaments/:id/share` | ✓ | Share tournament |
+| POST | `/ai/game-recap/:gameId` | ✓ | AI game recap |
+| POST | `/ai/scouting-assist` | ✓ | AI scouting assistant |
+| POST | `/ai/lineup-recommendation/:teamId` | ✓ | AI lineup recommendation |
+| POST | `/ai/development-insights/:playerId` | ✓ | AI development insights |
+| GET | `/export/game/:gameId/csv` | ✓ | Export game CSV |
+| GET | `/export/game/:gameId/json` | ✓ | Export game JSON |
+| GET | `/export/player/:id/card/pdf` | ✓ | Export player card PDF |
+| GET | `/export/scouting/:id/pdf` | ✓ | Export scouting report PDF |
+| GET | `/settings` | ✓ | Get preferences |
+| PUT | `/settings` | ✓ | Update preferences |
+| GET | `/notifications/vapid-public-key` | — | VAPID public key |
+| POST | `/notifications/subscribe` | ✓ | Save push subscription |
+| DELETE | `/notifications/subscribe` | ✓ | Remove push subscription |
+| GET | `/account/export` | ✓ | LGPD/GDPR data export (JSON download) |
+| DELETE | `/account` | ✓ | Delete account (soft-delete + anonymize) |
+
+## Database Schema (22 tables)
+
+| Table | Schema file |
+| --- | --- |
+| `users` | users.schema.ts |
+| `user_team_roles` | users.schema.ts |
+| `invitations` | users.schema.ts |
+| `refresh_tokens` | users.schema.ts |
+| `organizations` | organizations.schema.ts |
+| `teams` | teams.schema.ts |
+| `players` | players.schema.ts |
+| `games` | games.schema.ts |
+| `game_templates` | games.schema.ts |
+| `stat_events` | stat-events.schema.ts |
+| `stat_event_audits` | stat-events.schema.ts |
+| `lineup_snapshots` | lineup-snapshots.schema.ts |
+| `opponent_teams` | opponents.schema.ts |
+| `opponent_players` | opponents.schema.ts |
+| `scouting_reports` | scouting.schema.ts |
+| `development_entries` | development.schema.ts |
+| `development_goals` | development.schema.ts |
+| `tournaments` | tournaments.schema.ts |
+| `tournament_games` | tournaments.schema.ts |
+| `settings` | settings.schema.ts |
+| `push_subscriptions` | push-subscriptions.schema.ts |
+| `notification_logs` | push-subscriptions.schema.ts |
+
+## Key Domain Rules
+
+- `stat-calculators.ts` is the single source of truth for ALL derived stats. Never compute stats inline in routes or components.
+- **`fga` formula:** `fga = twopm + twopa + threepm + threepa` — made shots count as attempts. Do NOT use `twopa + threepa` (miss-only) which was a historic bug.
+- All DB migrations are Drizzle-managed (`npm run db:generate` → `npm run db:migrate`). Never write raw SQL migration files.
+- Every entity has `id UUID PK`, `created_at`, `updated_at`, `deleted_at` (soft delete).
+- Soft-delete everywhere — `deleted_at IS NULL` filter is implicit in repository queries.
+- Account deletion: revokes all tokens, soft-deletes the user row, and anonymizes email to `deleted-{id}@deleted.invalid`.
+- STAT_TYPE enum: `2PM | 2PA | 3PM | 3PA | FTM | FTA | OREB | DREB | AST | TO | STL | BLK | DFD | PF | TF | FF | SUB_IN | SUB_OUT | PERIOD_START | PERIOD_END | TIMEOUT`
+- Shot zones are assigned by `classifyShotZone(x, y)` — x/y are normalized 0.0–1.0.
+
+## RBAC
+
+Roles per team: `OWNER > COACH > ASSISTANT > SCOUT > VIEWER`
+
+- `requireRole('OWNER', 'COACH')` middleware guards destructive routes
+- Players can only view their own data (not other players' scouting data)
+
+## Testing Rules
+
+- Unit tests: mock repository interfaces only; live in `tests/unit/`
+- Integration tests: real PostgreSQL 17; live in `tests/integration/`
+- Each test file mirrors its source: `src/application/auth/registerUser.ts` → `tests/unit/auth/registerUser.test.ts`
+- Run unit tests without Docker; integration tests require the `postgres` service
+- E2E tests live in `frontend/e2e/` and run via Playwright — excluded from Vitest via `vitest.config.ts`
+- All mock IDs in tests must be valid UUIDs (e.g. `'00000000-0000-0000-0000-000000000001'`) — Zod uuid() validation runs inside use cases
+
+## AWS Migration Path
+
+Zero application code changes required:
+1. Swap Docker Compose → ECS Task Definitions or EC2
+2. Swap `STORAGE_PATH` local storage → `multer-s3` + S3 bucket
+3. Swap `.env` → AWS Secrets Manager
+4. Swap `postgres` container → RDS PostgreSQL 17
+5. Add CloudFront CDN in front of frontend
+
+## nginx Config Generation
+
+`nginx/nginx.conf` is gitignored — generated from the template:
+
+```bash
+bash nginx/generate-nginx-conf.sh                        # localhost
+DOMAIN=yourdomain.com bash nginx/generate-nginx-conf.sh # production
+```
+
+## GitFlow
+
+```text
+main ← release/* ← develop ← feature/*
+```
+
+Active branch: `feature/wave-6-notifications-pwa` (from `develop`).
+Never commit directly to `main` or `develop`.
