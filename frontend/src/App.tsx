@@ -12,6 +12,8 @@ import BoxScorePage from './features/games/BoxScorePage';
 import AnalyticsDashboard from './features/analytics/AnalyticsDashboard';
 import ScoutingPage from './features/scouting/ScoutingPage';
 import TournamentsPage from './features/tournaments/TournamentsPage';
+import TournamentDetailPage from './features/tournaments/TournamentDetailPage';
+import PublicBracketPage from './features/tournaments/PublicBracketPage';
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
   const isAuthenticated = useAuthStore((s) => !!s.accessToken);
@@ -25,6 +27,7 @@ export default function App() {
       <Routes>
         <Route path="/login" element={<LoginPage />} />
         <Route path="/register" element={<RegisterPage />} />
+        <Route path="/bracket/:token" element={<PublicBracketPage />} />
         <Route
           path="/"
           element={
@@ -43,6 +46,7 @@ export default function App() {
           <Route path="teams/:teamId/analytics" element={<AnalyticsDashboard />} />
           <Route path="scouting" element={<ScoutingPage />} />
           <Route path="tournaments" element={<TournamentsPage />} />
+          <Route path="tournaments/:id" element={<TournamentDetailPage />} />
         </Route>
       </Routes>
     </BrowserRouter>

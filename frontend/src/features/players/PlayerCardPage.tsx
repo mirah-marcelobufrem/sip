@@ -1,5 +1,6 @@
+import { useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useMutation } from '@tanstack/react-query';
 import { api } from '../../lib/api';
 import { ShotChart } from '../../components/charts/ShotChart';
 
@@ -30,6 +31,12 @@ interface ShotChartData {
 
 export default function PlayerCardPage() {
   const { teamId, playerId } = useParams<{ teamId: string; playerId: string }>();
+  const [devInsights, setDevInsights] = useState<string | null>(null);
+
+  const insightsMutation = useMutation({
+    mutationFn: () => api.post<{ insights: string }>(`/ai/development-insights/${playerId}`, {}),
+    onSuccess: (data) => setDevInsights(data.insights),
+  });
 
   const { data: chartData, isLoading } = useQuery<ShotChartData>({
     queryKey: ['player-shot-chart', teamId, playerId],
@@ -88,8 +95,36 @@ export default function PlayerCardPage() {
             {player.dominantHand && <span>{player.dominantHand === 'R' ? 'Right-handed' : 'Left-handed'}</span>}
           </div>
         </div>
-        {gp > 0 && <div className="text-sm text-gray-400 shrink-0">{gp} games</div>}
+        <div className="flex flex-col items-end gap-2 shrink-0">
+          {gp > 0 && <div className="text-sm text-gray-400">{gp} games</div>}
+          <div className="flex gap-2">
+            <a
+              href={`/api/v1/export/player/${playerId}/card/pdf`}
+              download
+              className="text-xs px-3 py-1.5 bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-200 rounded-lg transition-colors"
+            >
+              Export PDF
+            </a>
+            <button
+              onClick={() => insightsMutation.mutate()}
+              disabled={insightsMutation.isPending}
+              className="text-xs px-3 py-1.5 bg-brand-50 dark:bg-brand-900/20 text-brand-700 dark:text-brand-300 hover:bg-brand-100 rounded-lg transition-colors disabled:opacity-60"
+            >
+              {insightsMutation.isPending ? 'Analyzing…' : 'AI Insights'}
+            </button>
+          </div>
+        </div>
       </div>
+
+      {devInsights && (
+        <div className="bg-brand-50 dark:bg-brand-900/10 border border-brand-200 dark:border-brand-800 rounded-xl p-4">
+          <div className="flex items-center justify-between mb-2">
+            <p className="text-xs font-semibold text-brand-700 dark:text-brand-300 uppercase tracking-wider">AI Development Insights</p>
+            <button onClick={() => setDevInsights(null)} className="text-xs text-gray-400 hover:text-gray-600">Dismiss</button>
+          </div>
+          <p className="text-sm text-gray-700 dark:text-gray-300 whitespace-pre-line leading-relaxed">{devInsights}</p>
+        </div>
+      )}
 
       {/* Stat cards */}
       {statCards.length > 0 && (

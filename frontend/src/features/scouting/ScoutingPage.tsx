@@ -2,6 +2,41 @@ import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../../lib/api';
 
+function AIScoutingAssist() {
+  const [prompt, setPrompt] = useState('');
+  const [result, setResult] = useState<string | null>(null);
+
+  const mutation = useMutation({
+    mutationFn: () => api.post<{ result: string }>('/ai/scouting-assist', { prompt }),
+    onSuccess: (data) => setResult(data.result),
+  });
+
+  return (
+    <div className="bg-brand-50 dark:bg-brand-900/10 border border-brand-200 dark:border-brand-800 rounded-xl p-4 mb-6">
+      <p className="text-xs font-semibold text-brand-700 dark:text-brand-300 uppercase tracking-wider mb-3">AI Scouting Assistant</p>
+      <div className="flex gap-2">
+        <input
+          value={prompt} onChange={(e) => setPrompt(e.target.value)}
+          placeholder="Describe what to improve or expand…"
+          className="flex-1 px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg text-sm bg-white dark:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-brand-500"
+        />
+        <button
+          onClick={() => mutation.mutate()} disabled={!prompt || mutation.isPending}
+          className="px-3 py-2 bg-brand-600 hover:bg-brand-700 text-white rounded-lg text-sm font-medium disabled:opacity-60"
+        >
+          {mutation.isPending ? '…' : 'Ask AI'}
+        </button>
+      </div>
+      {result && (
+        <div className="mt-3">
+          <p className="text-sm text-gray-700 dark:text-gray-300 whitespace-pre-line leading-relaxed">{result}</p>
+          <button onClick={() => setResult(null)} className="text-xs text-gray-400 hover:text-gray-600 mt-2">Dismiss</button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 interface Report {
   id: string;
   title: string;
@@ -74,6 +109,8 @@ export default function ScoutingPage() {
           + New Report
         </button>
       </div>
+
+      <AIScoutingAssist />
 
       {isLoading && <p className="text-gray-500">Loading…</p>}
 
@@ -164,6 +201,13 @@ export default function ScoutingPage() {
                       Generate share link
                     </button>
                   )}
+                  <a
+                    href={`/api/v1/export/scouting/${r.id}/pdf`}
+                    download
+                    className="text-xs px-3 py-1.5 bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-200 rounded-lg transition-colors"
+                  >
+                    Export PDF
+                  </a>
                   <button
                     onClick={() => {
                       if (confirm('Delete this report?')) deleteMutation.mutate(r.id);
