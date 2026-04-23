@@ -10,12 +10,12 @@ Basketball intelligence app — live stat tracking, player & opponent scouting, 
 - **Opponent scouting** — persistent opponent profiles with accumulated stats and tendencies
 - **Scouting reports** — structured player/team assessments with skill radar charts
 - **Player development** — longitudinal tracking with goals and milestone notifications
-- **Tournament management** — single/double-elimination and round-robin brackets
+- **Tournament management** — single/double-elimination and round-robin brackets with shareable public bracket pages
 - **AI features** — game recaps, scouting assistant, lineup recommendations (Anthropic Claude)
-- **Export** — CSV, PDF, JSON, PNG for all major views
-- **PWA** — installable, works offline with automatic sync
-- **Push notifications** — Web Push for game recaps, milestones, and invitations
-- **LGPD/GDPR compliant** — full data export and account deletion
+- **Export** — CSV, PDF (Puppeteer), JSON for all major views
+- **PWA** — installable, works offline with IndexedDB queue; auto-syncs on reconnect
+- **Push notifications** — Web Push (VAPID) for game recaps, milestones, and invitations
+- **LGPD/GDPR compliant** — full data export (JSON download) and account deletion
 
 ## Stack
 
@@ -27,11 +27,11 @@ Basketball intelligence app — live stat tracking, player & opponent scouting, 
 | Charts | Recharts + custom SVG shot chart |
 | Backend | Express 5 + Node.js 22 LTS + TypeScript strict |
 | ORM | Drizzle ORM + Drizzle Kit |
-| Auth | JWT (jose) + bcrypt |
+| Auth | JWT (jose) + bcrypt — 15 min access / 7 day refresh |
 | AI | Anthropic Claude API (`@anthropic-ai/sdk`) |
 | PDF export | Puppeteer (headless) |
 | Push notifications | Web Push (VAPID) |
-| Database | PostgreSQL 17 |
+| Database | PostgreSQL 17 (22 tables) |
 | Container | Docker Compose (dev) + docker-compose.prod.yml (production) |
 | Proxy | nginx (production, with Let's Encrypt SSL) |
 | CI/CD | GitHub Actions (CI + deploy + Playwright E2E) |
@@ -102,6 +102,8 @@ VAPID_PRIVATE_KEY=<your-private-key>
 VAPID_SUBJECT=mailto:admin@yourdomain.com
 ```
 
+Push notifications silently no-op when these keys are absent — the app runs normally without them.
+
 ## Production Deployment
 
 ```bash
@@ -133,6 +135,7 @@ docker compose -f docker-compose.prod.yml exec backend npm run db:migrate
 | `FRONTEND_URL` | `https://yourdomain.com` |
 | `VAPID_PUBLIC_KEY` | From `npx web-push generate-vapid-keys` |
 | `VAPID_PRIVATE_KEY` | From `npx web-push generate-vapid-keys` |
+| `VAPID_SUBJECT` | `mailto:admin@yourdomain.com` |
 
 ## AWS Migration Path
 
@@ -150,14 +153,14 @@ Zero application code changes required:
 
 Clean Architecture (Hexagonal) — strict layer boundaries:
 
-```
+```text
 domain/ → application/ → infrastructure/ → presentation/
 ```
 
-- **`domain/`** — entities, repository interfaces, stat calculators. Zero external imports.
-- **`application/`** — one use case per file, domain-only imports, dependencies injected.
-- **`infrastructure/`** — Drizzle schema/repositories, auth, AI client, file storage, Web Push.
-- **`presentation/`** — Express routes, auth middleware, Zod validators.
+- **`domain/`** — entities, repository interfaces, `stat-calculators.ts` (all derived stats). Zero external imports.
+- **`application/`** — one use case per file, domain-only imports, dependencies injected as parameters. Every use case calls `Schema.parse()` internally so Zod validation runs regardless of the caller.
+- **`infrastructure/`** — Drizzle schema + repositories, auth (JWT/bcrypt), AI client, Puppeteer PDF, Web Push service.
+- **`presentation/`** — Express routes, auth middleware (`req.userId`, `req.userRole`), error middleware.
 
 Frontend follows feature-sliced modules — features never import from each other, only through shared `lib/`, `hooks/`, and `store/`.
 
