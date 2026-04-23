@@ -7,6 +7,7 @@ import playersRoutes from './presentation/routes/players.routes.js';
 import teamGamesRoutes from './presentation/routes/team-games.routes.js';
 import gamesRoutes from './presentation/routes/games.routes.js';
 import analyticsRoutes from './presentation/routes/analytics.routes.js';
+import scoutingRoutes from './presentation/routes/scouting.routes.js';
 import { errorMiddleware } from './presentation/middleware/error.middleware.js';
 
 const app = express();
@@ -29,6 +30,7 @@ app.use('/api/v1/teams/:teamId/players', playersRoutes);
 app.use('/api/v1/teams/:teamId/games', teamGamesRoutes);
 app.use('/api/v1/games', gamesRoutes);
 app.use('/api/v1', analyticsRoutes);
+app.use('/api/v1/scouting-reports', scoutingRoutes);
 
 app.use(errorMiddleware);
 

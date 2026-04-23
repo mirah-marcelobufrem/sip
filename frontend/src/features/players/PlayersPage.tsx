@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useParams } from 'react-router-dom';
+import { useParams, Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../../lib/api';
 
@@ -81,8 +81,13 @@ export default function PlayersPage() {
             {players.map((p) => (
               <tr key={p.id} className="hover:bg-gray-50 dark:hover:bg-gray-800/50">
                 <td className="px-4 py-3 font-mono text-gray-500">{p.jerseyNumber ?? '—'}</td>
-                <td className="px-4 py-3 font-medium text-gray-900 dark:text-gray-100">
-                  {p.firstName} {p.lastName}
+                <td className="px-4 py-3 font-medium">
+                  <Link
+                    to={`/teams/${teamId}/players/${p.id}`}
+                    className="text-gray-900 dark:text-gray-100 hover:text-brand-600 dark:hover:text-brand-400 transition-colors"
+                  >
+                    {p.firstName} {p.lastName}
+                  </Link>
                 </td>
                 <td className="px-4 py-3 text-gray-500">{p.position ?? '—'}</td>
                 <td className="px-4 py-3">

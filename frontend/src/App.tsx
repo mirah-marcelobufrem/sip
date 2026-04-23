@@ -5,6 +5,7 @@ import LoginPage from './features/auth/LoginPage';
 import RegisterPage from './features/auth/RegisterPage';
 import TeamsPage from './features/teams/TeamsPage';
 import PlayersPage from './features/players/PlayersPage';
+import PlayerCardPage from './features/players/PlayerCardPage';
 import GamesPage from './features/games/GamesPage';
 import LiveRecordingPage from './features/live/LiveRecordingPage';
 import BoxScorePage from './features/games/BoxScorePage';
@@ -35,6 +36,7 @@ export default function App() {
           <Route index element={<Navigate to="/teams" replace />} />
           <Route path="teams" element={<TeamsPage />} />
           <Route path="teams/:teamId/players" element={<PlayersPage />} />
+          <Route path="teams/:teamId/players/:playerId" element={<PlayerCardPage />} />
           <Route path="teams/:teamId/games" element={<GamesPage />} />
           <Route path="games/:gameId/live" element={<LiveRecordingPage />} />
           <Route path="games/:gameId/box-score" element={<BoxScorePage />} />
