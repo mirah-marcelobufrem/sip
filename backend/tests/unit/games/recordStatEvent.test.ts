@@ -2,11 +2,17 @@ import { recordStatEvent } from '../../../src/application/games/recordStatEvent.
 import type { IStatEventRepository, ILineupSnapshotRepository } from '../../../src/domain/repositories/game.repository.js';
 import type { StatEvent, LineupSnapshot } from '../../../src/domain/entities/game.entity.js';
 
+const GAME_ID = '00000000-0000-0000-0000-000000000001';
+const TEAM_ID = '00000000-0000-0000-0000-000000000002';
+const PLAYER_ID = '00000000-0000-0000-0000-000000000003';
+const SNAP_ID = '00000000-0000-0000-0000-000000000004';
+
 function makeStatRepo(): IStatEventRepository {
   const stored: StatEvent[] = [];
   return {
     findById: jest.fn().mockResolvedValue(null),
     findByGame: jest.fn().mockResolvedValue(stored),
+    findByPlayer: jest.fn().mockResolvedValue(stored),
     findByGameAndPlayer: jest.fn().mockResolvedValue(stored),
     findByGameAndTeam: jest.fn().mockResolvedValue(stored),
     findShotEvents: jest.fn().mockResolvedValue(stored),
@@ -25,7 +31,7 @@ function makeLineupRepo(snapshot?: LineupSnapshot): ILineupSnapshotRepository {
   return {
     findByGame: jest.fn().mockResolvedValue([]),
     findLatestByGameAndTeam: jest.fn().mockResolvedValue(snapshot ?? null),
-    create: jest.fn().mockResolvedValue({ id: 'snap-1', playerIds: [] }),
+    create: jest.fn().mockResolvedValue({ id: SNAP_ID, playerIds: [] }),
     update: jest.fn(),
   };
 }
@@ -33,26 +39,26 @@ function makeLineupRepo(snapshot?: LineupSnapshot): ILineupSnapshotRepository {
 describe('recordStatEvent', () => {
   it('creates a stat event and links lineup snapshot', async () => {
     const snapshot: LineupSnapshot = {
-      id: 'snap-1',
-      gameId: 'game-1',
-      teamId: 'team-1',
+      id: SNAP_ID,
+      gameId: GAME_ID,
+      teamId: TEAM_ID,
       period: 1,
       clockTimeSeconds: 600,
-      playerIds: ['p1', 'p2', 'p3', 'p4', 'p5'],
+      playerIds: [PLAYER_ID],
     };
 
     const statRepo = makeStatRepo();
     const lineupRepo = makeLineupRepo(snapshot);
 
     const event = await recordStatEvent(
-      { gameId: 'game-1', period: 1, statType: '2PM', playerId: 'p1', teamId: 'team-1' },
+      { gameId: GAME_ID, period: 1, statType: '2PM', playerId: PLAYER_ID, teamId: TEAM_ID },
       statRepo,
       lineupRepo,
     );
 
     expect(event.statType).toBe('2PM');
     expect(statRepo.create).toHaveBeenCalledWith(
-      expect.objectContaining({ lineupSnapshotId: 'snap-1' }),
+      expect.objectContaining({ lineupSnapshotId: SNAP_ID }),
     );
   });
 
@@ -61,7 +67,7 @@ describe('recordStatEvent', () => {
     const lineupRepo = makeLineupRepo();
 
     const event = await recordStatEvent(
-      { gameId: 'game-1', period: 1, statType: 'AST', playerId: 'p1', teamId: 'team-1' },
+      { gameId: GAME_ID, period: 1, statType: 'AST', playerId: PLAYER_ID, teamId: TEAM_ID },
       statRepo,
       lineupRepo,
     );
@@ -72,7 +78,7 @@ describe('recordStatEvent', () => {
   it('rejects invalid stat types', async () => {
     await expect(
       recordStatEvent(
-        { gameId: 'game-1', period: 1, statType: 'INVALID' as any },
+        { gameId: GAME_ID, period: 1, statType: 'INVALID' as any },
         makeStatRepo(),
         makeLineupRepo(),
       ),

@@ -74,7 +74,7 @@ export function aggregatePlayerEvents(events: StatEvent[]): PlayerBoxScore {
   }
 
   box.fgm = box.twopm + box.threepm;
-  box.fga = box.twopa + box.threepa;
+  box.fga = box.twopm + box.twopa + box.threepm + box.threepa; // made shots are also attempts
   box.reb = box.oreb + box.dreb;
 
   return box;

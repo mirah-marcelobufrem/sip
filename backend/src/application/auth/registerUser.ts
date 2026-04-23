@@ -12,10 +12,11 @@ export const RegisterUserInput = z.object({
 export type RegisterUserInput = z.infer<typeof RegisterUserInput>;
 
 export async function registerUser(
-  input: RegisterUserInput,
+  rawInput: RegisterUserInput,
   userRepo: IUserRepository,
   settingsRepo: ISettingsRepository,
 ) {
+  const input = RegisterUserInput.parse(rawInput);
   const existing = await userRepo.findByEmail(input.email);
   if (existing) {
     throw Object.assign(new Error('Email already registered'), { code: 'EMAIL_TAKEN' });

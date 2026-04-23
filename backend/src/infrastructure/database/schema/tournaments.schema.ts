@@ -1,4 +1,4 @@
-import { integer, pgEnum, pgTable, text, timestamp, uuid } from 'drizzle-orm/pg-core';
+import { integer, jsonb, pgEnum, pgTable, text, timestamp, uuid } from 'drizzle-orm/pg-core';
 import { organizations } from './organizations.schema.js';
 import { games } from './games.schema.js';
 
@@ -23,6 +23,7 @@ export const tournaments = pgTable('tournaments', {
   endDate: timestamp('end_date', { withTimezone: true }),
   format: tournamentFormatEnum('format').notNull(),
   numTeams: integer('num_teams').notNull(),
+  teams: jsonb('teams').$type<TournamentTeamEntry[]>().default([]).notNull(),
   shareToken: text('share_token').unique(),
   status: tournamentStatusEnum('status').default('upcoming').notNull(),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
@@ -40,6 +41,16 @@ export const tournamentGames = pgTable('tournament_games', {
   position: integer('position').notNull(),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
 });
+
+export interface TournamentTeamEntry {
+  seed: number;
+  teamId?: string;
+  teamName: string;
+  wins?: number;
+  losses?: number;
+  points?: number;
+  pointDiff?: number;
+}
 
 export type Tournament = typeof tournaments.$inferSelect;
 export type NewTournament = typeof tournaments.$inferInsert;

@@ -1,5 +1,6 @@
+import { useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useMutation } from '@tanstack/react-query';
 import { api } from '../../lib/api';
 
 interface BoxRow {
@@ -41,6 +42,13 @@ function fmt(n: number | null, decimals = 1): string {
 
 export default function BoxScorePage() {
   const { gameId } = useParams<{ gameId: string }>();
+  const [recap, setRecap] = useState<string | null>(null);
+  const [recapStyle, setRecapStyle] = useState<'formal' | 'casual' | 'social'>('casual');
+
+  const recapMutation = useMutation({
+    mutationFn: () => api.post<{ recap: string }>(`/ai/game-recap/${gameId}`, { style: recapStyle }),
+    onSuccess: (data) => setRecap(data.recap),
+  });
 
   const { data: game } = useQuery<Game>({
     queryKey: ['game', gameId],
@@ -58,6 +66,38 @@ export default function BoxScorePage() {
         <Link to={-1 as never} className="text-gray-400 hover:text-gray-600 text-sm">← Back</Link>
         <div>
           <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">Box Score</h1>
+          <div className="flex items-center gap-2 mt-3 flex-wrap">
+            <a
+              href={`/api/v1/export/game/${gameId}/csv`}
+              download
+              className="text-xs px-3 py-1.5 bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-200 rounded-lg transition-colors"
+            >
+              Export CSV
+            </a>
+            <a
+              href={`/api/v1/export/game/${gameId}/json`}
+              download
+              className="text-xs px-3 py-1.5 bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-200 rounded-lg transition-colors"
+            >
+              Export JSON
+            </a>
+            <select
+              value={recapStyle}
+              onChange={(e) => setRecapStyle(e.target.value as typeof recapStyle)}
+              className="text-xs px-2 py-1.5 border border-gray-300 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-800 focus:outline-none"
+            >
+              <option value="casual">Casual</option>
+              <option value="formal">Formal</option>
+              <option value="social">Social media</option>
+            </select>
+            <button
+              onClick={() => recapMutation.mutate()}
+              disabled={recapMutation.isPending}
+              className="text-xs px-3 py-1.5 bg-brand-50 dark:bg-brand-900/20 text-brand-700 dark:text-brand-300 hover:bg-brand-100 rounded-lg transition-colors disabled:opacity-60"
+            >
+              {recapMutation.isPending ? 'Generating…' : 'AI Game Recap'}
+            </button>
+          </div>
           {game && (
             <p className="text-sm text-gray-500">
               {new Date(game.date).toLocaleDateString()}
@@ -69,6 +109,20 @@ export default function BoxScorePage() {
       </div>
 
       {isLoading && <p className="text-gray-500">Loading…</p>}
+
+      {recap && (
+        <div className="bg-brand-50 dark:bg-brand-900/10 border border-brand-200 dark:border-brand-800 rounded-xl p-4 mb-4">
+          <div className="flex items-center justify-between mb-2">
+            <p className="text-xs font-semibold text-brand-700 dark:text-brand-300 uppercase tracking-wider">AI Game Recap</p>
+            <button onClick={() => setRecap(null)} className="text-xs text-gray-400 hover:text-gray-600">Dismiss</button>
+          </div>
+          <p className="text-sm text-gray-700 dark:text-gray-300 whitespace-pre-line leading-relaxed">{recap}</p>
+        </div>
+      )}
+
+      {recapMutation.isError && (
+        <p className="text-sm text-red-500 mb-4">Failed to generate recap. Check that ANTHROPIC_API_KEY is configured.</p>
+      )}
 
       {boxRows.length === 0 && !isLoading && (
         <p className="text-center text-gray-400 py-10">No stats recorded for this game yet.</p>

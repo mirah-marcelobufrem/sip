@@ -1,150 +1,177 @@
 # SIP Scout
 
-Basketball intelligence app — live stat tracking + player & opponent scouting.
+Basketball intelligence app — live stat tracking, player & opponent scouting, and tournament management.
+
+## Features
+
+- **Live stat recording** — 2-tap entry for any stat, both teams tracked at player level
+- **Shot charts** — custom SVG half-court with zone analysis and heat maps
+- **Season analytics** — box scores, lineup rankings, on/off analysis, efficiency metrics
+- **Opponent scouting** — persistent opponent profiles with accumulated stats and tendencies
+- **Scouting reports** — structured player/team assessments with skill radar charts
+- **Player development** — longitudinal tracking with goals and milestone notifications
+- **Tournament management** — single/double-elimination and round-robin brackets with shareable public bracket pages
+- **AI features** — game recaps, scouting assistant, lineup recommendations (Anthropic Claude)
+- **Export** — CSV, PDF (Puppeteer), JSON for all major views
+- **PWA** — installable, works offline with IndexedDB queue; auto-syncs on reconnect
+- **Push notifications** — Web Push (VAPID) for game recaps, milestones, and invitations
+- **LGPD/GDPR compliant** — full data export (JSON download) and account deletion
 
 ## Stack
 
 | Layer | Technology |
 |---|---|
-| Frontend | React 19, Vite 6, Tailwind CSS v4, TanStack Query v5, React Router v7 |
-| Backend | Express 5, Node.js 22 LTS, TypeScript strict |
-| Database | PostgreSQL 17 |
+| Frontend | React 19 + Vite 6 + Tailwind CSS v4 |
+| State | TanStack Query v5 (server) + Zustand v5 (client) |
+| Routing | React Router v7 |
+| Charts | Recharts + custom SVG shot chart |
+| Backend | Express 5 + Node.js 22 LTS + TypeScript strict |
 | ORM | Drizzle ORM + Drizzle Kit |
-| Auth | JWT (jose) + bcrypt |
-| Container | Docker Compose |
-| CI/CD | GitHub Actions |
+| Auth | JWT (jose) + bcrypt — 15 min access / 7 day refresh |
+| AI | Anthropic Claude API (`@anthropic-ai/sdk`) |
+| PDF export | Puppeteer (headless) |
+| Push notifications | Web Push (VAPID) |
+| Database | PostgreSQL 17 (22 tables) |
+| Container | Docker Compose (dev) + docker-compose.prod.yml (production) |
+| Proxy | nginx (production, with Let's Encrypt SSL) |
+| CI/CD | GitHub Actions (CI + deploy + Playwright E2E) |
+| E2E tests | Playwright |
 
 ## Quick Start (Docker Desktop)
 
 ```bash
-cp .env.example .env
-# Add your ANTHROPIC_API_KEY to .env (required for AI features only)
-
+cp .env.example .env          # fill in JWT_SECRET, JWT_REFRESH_SECRET
 docker compose up
 ```
 
-The app will be available at:
-- Frontend: http://localhost:5173
-- Backend API: http://localhost:3001
-- API health: http://localhost:3001/health
+App is available at:
 
-## Local Development (without Docker)
+- Frontend: <http://localhost:5173>
+- Backend API: <http://localhost:3001/api/v1>
+- Health check: <http://localhost:3001/health>
 
-**Prerequisites:** Node.js 22, PostgreSQL 17 running locally.
+## Development (without Docker)
 
 ```bash
 # Backend
 cd backend
-cp .env.example .env          # edit DATABASE_URL if needed
 npm install
-npm run db:migrate
+npm run db:migrate            # requires a local postgres:17
 npm run dev                   # http://localhost:3001
 
-# Frontend (new terminal)
+# Frontend
 cd frontend
 npm install
 npm run dev                   # http://localhost:5173
 ```
 
-## Database Migrations
+## Common Commands
 
 ```bash
-cd backend
-npm run db:generate   # generate migration from schema changes
-npm run db:migrate    # apply pending migrations
-npm run db:studio     # open Drizzle Studio (visual DB explorer)
+# Schema changes
+cd backend && npm run db:generate   # generates migration from schema
+cd backend && npm run db:migrate    # applies pending migrations
+
+# Tests
+cd backend && npm run test:unit
+cd backend && npm run test:integration
+cd frontend && npm test
+cd frontend && npx playwright test  # E2E (requires running stack)
+
+# Type checks
+cd backend && npm run typecheck
+cd frontend && npm run typecheck
+
+# nginx config (production)
+DOMAIN=yourdomain.com bash nginx/generate-nginx-conf.sh
 ```
 
-## Testing
+## Push Notifications (VAPID setup)
+
+Generate VAPID keys once and store them as secrets:
 
 ```bash
-# Backend
-cd backend
-npm run test:unit         # unit tests (no DB required)
-npm run test:integration  # integration tests (requires PostgreSQL)
-npm run test:coverage     # coverage report
-
-# Frontend
-cd frontend
-npm test                  # Vitest
+npx web-push generate-vapid-keys
 ```
 
-## Project Structure
+Add to `.env` (dev) or GitHub Secrets / AWS Secrets Manager (prod):
 
 ```
-sip/
-├── backend/
-│   └── src/
-│       ├── domain/          # Entities, repository interfaces, stat calculators
-│       ├── application/     # Use cases (one function per use case)
-│       ├── infrastructure/  # Drizzle repositories, JWT, storage
-│       └── presentation/    # Express routes, middleware
-├── frontend/
-│   └── src/
-│       ├── components/      # Shared UI: AppShell, ShotChart, etc.
-│       ├── features/        # Page-level feature modules
-│       ├── lib/             # API client
-│       └── store/           # Zustand stores
-├── nginx/                   # nginx config template + generator script
-├── docker-compose.yml       # Local development
-└── docker-compose.prod.yml  # Production (AWS-ready)
+VAPID_PUBLIC_KEY=<your-public-key>
+VAPID_PRIVATE_KEY=<your-private-key>
+VAPID_SUBJECT=mailto:admin@yourdomain.com
 ```
+
+Push notifications silently no-op when these keys are absent — the app runs normally without them.
+
+## Production Deployment
+
+```bash
+# Generate nginx config with SSL
+DOMAIN=yourdomain.com bash nginx/generate-nginx-conf.sh
+
+# First run: bootstrap SSL with certbot
+docker compose -f docker-compose.prod.yml run --rm certbot \
+  certonly --webroot -w /var/www/certbot -d yourdomain.com \
+  --email admin@yourdomain.com --agree-tos --no-eff-email
+
+# Start the stack
+IMAGE_TAG=latest docker compose -f docker-compose.prod.yml up -d
+
+# Apply migrations
+docker compose -f docker-compose.prod.yml exec backend npm run db:migrate
+```
+
+**Required secrets** (set as environment variables or in a `.env.prod` file):
+
+| Variable | Description |
+|---|---|
+| `POSTGRES_USER` | DB username |
+| `POSTGRES_PASSWORD` | DB password (strong) |
+| `POSTGRES_DB` | DB name |
+| `JWT_SECRET` | 256-bit random string |
+| `JWT_REFRESH_SECRET` | 256-bit random string |
+| `ANTHROPIC_API_KEY` | From console.anthropic.com |
+| `FRONTEND_URL` | `https://yourdomain.com` |
+| `VAPID_PUBLIC_KEY` | From `npx web-push generate-vapid-keys` |
+| `VAPID_PRIVATE_KEY` | From `npx web-push generate-vapid-keys` |
+| `VAPID_SUBJECT` | `mailto:admin@yourdomain.com` |
+
+## AWS Migration Path
+
+Zero application code changes required:
+
+| Local | AWS |
+|---|---|
+| `docker-compose.prod.yml` | ECS Task Definitions or EC2 + Docker |
+| Local file storage | `multer-s3` + S3 bucket |
+| `.env` secrets | AWS Secrets Manager / Parameter Store |
+| `postgres` container | RDS PostgreSQL 17 |
+| nginx | CloudFront CDN + ALB |
 
 ## Architecture
 
-Clean Architecture with four layers:
+Clean Architecture (Hexagonal) — strict layer boundaries:
 
-```
-domain → application → infrastructure → presentation
-```
-
-- **domain**: zero dependencies; entities, repository interfaces, stat calculators
-- **application**: use cases; imports only domain interfaces
-- **infrastructure**: Drizzle implementations, JWT, file storage; imports domain
-- **presentation**: Express routes; calls use cases; never touches DB directly
-
-## AWS Migration
-
-The app is AWS-ready with zero code changes:
-
-1. Swap `docker-compose.prod.yml` → ECS Task Definitions or EC2 + Docker
-2. Replace `STORAGE_PATH` local storage → S3 (`multer-s3`)
-3. Replace `.env` secrets → AWS Secrets Manager / Parameter Store
-4. Replace `postgres` container → RDS PostgreSQL 17 (schema identical)
-5. Add CloudFront CDN in front of the nginx/static assets
-
-## Development Waves
-
-See [.work/plan.txt](.work/plan.txt) for the full sprint plan.
-
-| Wave | Sprints | Scope |
-|---|---|---|
-| 1 | 1–2 | Auth, Teams, Players, Opponent Management |
-| 2 | 3–4 | Live Stat Recording, Shot Charts, Box Scores |
-| 3 | 5–6 | Season Analytics, Lineup Analysis, Game Flow |
-| 4 | 7–8 | Scouting Reports, Player Cards, Development Tracking |
-| 5 | 9–10 | Tournaments, AI Features, Export |
-| 6 | 11–12 | PWA/Offline, Notifications, Settings, Production Hardening |
-
-## Environment Variables
-
-Copy `.env.example` to `.env` and fill in values. Required for production:
-
-```
-JWT_SECRET            256-bit random string
-JWT_REFRESH_SECRET    256-bit random string (different from above)
-ANTHROPIC_API_KEY     For AI features only (optional for non-AI use)
+```text
+domain/ → application/ → infrastructure/ → presentation/
 ```
 
-## Contributing
+- **`domain/`** — entities, repository interfaces, `stat-calculators.ts` (all derived stats). Zero external imports.
+- **`application/`** — one use case per file, domain-only imports, dependencies injected as parameters. Every use case calls `Schema.parse()` internally so Zod validation runs regardless of the caller.
+- **`infrastructure/`** — Drizzle schema + repositories, auth (JWT/bcrypt), AI client, Puppeteer PDF, Web Push service.
+- **`presentation/`** — Express routes, auth middleware (`req.userId`, `req.userRole`), error middleware.
 
-This project follows [GitFlow](https://nvie.com/posts/a-successful-git-branching-model/).
+Frontend follows feature-sliced modules — features never import from each other, only through shared `lib/`, `hooks/`, and `store/`.
 
-```bash
-git checkout develop
-git checkout -b feature/your-feature-name
-# ... implement ...
-# open PR → develop
+## GitFlow
+
+```text
+main ← release/* ← develop ← feature/*
 ```
 
-CI runs on every push: TypeScript check, lint, unit tests, integration tests, and build.
+Never commit directly to `main` or `develop`. All CI checks must pass before merge.
+
+## License
+
+Private — © 2026 SIP Scout

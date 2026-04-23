@@ -1,5 +1,7 @@
+import { useEffect } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { useAuthStore } from './store/auth.store';
+import { initTheme } from './store/theme.store';
 import AppShell from './components/layout/AppShell';
 import LoginPage from './features/auth/LoginPage';
 import RegisterPage from './features/auth/RegisterPage';
@@ -12,6 +14,10 @@ import BoxScorePage from './features/games/BoxScorePage';
 import AnalyticsDashboard from './features/analytics/AnalyticsDashboard';
 import ScoutingPage from './features/scouting/ScoutingPage';
 import TournamentsPage from './features/tournaments/TournamentsPage';
+import TournamentDetailPage from './features/tournaments/TournamentDetailPage';
+import PublicBracketPage from './features/tournaments/PublicBracketPage';
+import SettingsPage from './features/settings/SettingsPage';
+import AccountPage from './features/settings/AccountPage';
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
   const isAuthenticated = useAuthStore((s) => !!s.accessToken);
@@ -20,11 +26,14 @@ function RequireAuth({ children }: { children: React.ReactNode }) {
 }
 
 export default function App() {
+  useEffect(() => { initTheme(); }, []);
+
   return (
     <BrowserRouter>
       <Routes>
         <Route path="/login" element={<LoginPage />} />
         <Route path="/register" element={<RegisterPage />} />
+        <Route path="/bracket/:token" element={<PublicBracketPage />} />
         <Route
           path="/"
           element={
@@ -43,6 +52,9 @@ export default function App() {
           <Route path="teams/:teamId/analytics" element={<AnalyticsDashboard />} />
           <Route path="scouting" element={<ScoutingPage />} />
           <Route path="tournaments" element={<TournamentsPage />} />
+          <Route path="tournaments/:id" element={<TournamentDetailPage />} />
+          <Route path="settings" element={<SettingsPage />} />
+          <Route path="account" element={<AccountPage />} />
         </Route>
       </Routes>
     </BrowserRouter>

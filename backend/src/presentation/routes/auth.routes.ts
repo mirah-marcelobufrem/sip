@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import rateLimit from 'express-rate-limit';
 import { getDb } from '../../infrastructure/database/connection.js';
 import { DrizzleUserRepository } from '../../infrastructure/database/repositories/user.repository.js';
 import { DrizzleRefreshTokenRepository } from '../../infrastructure/database/repositories/refresh-token.repository.js';
@@ -11,7 +12,16 @@ import { hashToken } from '../../infrastructure/auth/token-hash.js';
 
 const router = Router();
 
-router.post('/register', async (req, res, next) => {
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many requests', code: 'RATE_LIMITED' },
+  skip: () => process.env.NODE_ENV === 'test',
+});
+
+router.post('/register', authLimiter, async (req, res, next) => {
   try {
     const input = RegisterUserInput.parse(req.body);
     const db = getDb();
@@ -26,7 +36,7 @@ router.post('/register', async (req, res, next) => {
   }
 });
 
-router.post('/login', async (req, res, next) => {
+router.post('/login', authLimiter, async (req, res, next) => {
   try {
     const input = LoginUserInput.parse(req.body);
     const db = getDb();

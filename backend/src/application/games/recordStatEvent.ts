@@ -20,12 +20,14 @@ export const RecordStatEventInput = z.object({
 });
 
 export type RecordStatEventInput = z.infer<typeof RecordStatEventInput>;
+export type RecordStatEventRawInput = z.input<typeof RecordStatEventInput>;
 
 export async function recordStatEvent(
-  input: RecordStatEventInput,
+  rawInput: RecordStatEventRawInput,
   statEventRepo: IStatEventRepository,
   lineupRepo: ILineupSnapshotRepository,
 ) {
+  const input = RecordStatEventInput.parse(rawInput);
   const lineup = await lineupRepo.findLatestByGameAndTeam(
     input.gameId,
     input.teamId ?? '',

@@ -10,3 +10,4 @@ export * from './scouting.schema.js';
 export * from './development.schema.js';
 export * from './tournaments.schema.js';
 export * from './settings.schema.js';
+export * from './push-subscriptions.schema.js';
