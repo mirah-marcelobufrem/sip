@@ -1,7 +1,7 @@
 import { useParams, Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '../../lib/api';
-import ShotChart from '../../components/charts/ShotChart';
+import { ShotChart } from '../../components/charts/ShotChart';
 
 interface Player {
   id: string;
@@ -121,6 +121,7 @@ export default function PlayerCardPage() {
               x: s.x ?? 0.5,
               y: s.y ?? 0.5,
               made: s.made,
+              type: (s.isThree ? (s.made ? '3PM' : '3PA') : (s.made ? '2PM' : '2PA')) as '2PM' | '2PA' | '3PM' | '3PA',
             }))}
           />
         )}

@@ -14,18 +14,9 @@ export default defineConfig({
     port: 5173,
     proxy: {
       '/api': {
-        target: 'http://localhost:3001',
+        target: process.env.BACKEND_URL ?? 'http://localhost:3001',
         changeOrigin: true,
       },
-    },
-  },
-  test: {
-    globals: true,
-    environment: 'jsdom',
-    setupFiles: ['./tests/setup.ts'],
-    coverage: {
-      provider: 'v8',
-      reporter: ['text', 'lcov'],
     },
   },
 });

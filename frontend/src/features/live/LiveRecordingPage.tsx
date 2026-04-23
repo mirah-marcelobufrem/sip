@@ -31,6 +31,7 @@ interface Game {
   status: string;
   currentPeriod: number;
   numPeriods: number;
+  format: string;
   finalScoreHome: number | null;
   finalScoreAway: number | null;
 }

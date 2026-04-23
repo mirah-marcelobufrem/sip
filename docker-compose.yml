@@ -20,6 +20,7 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile
+      target: deps
     restart: unless-stopped
     environment:
       DATABASE_URL: postgresql://sip:sip@postgres:5432/sip
@@ -35,7 +36,7 @@ services:
     volumes:
       - uploads:/app/uploads
       - ./backend:/app
-      - /app/node_modules
+      - backend_modules:/app/node_modules
     ports:
       - "3001:3001"
     depends_on:
@@ -47,12 +48,14 @@ services:
     build:
       context: ./frontend
       dockerfile: Dockerfile
+      target: dev
     restart: unless-stopped
     environment:
       VITE_API_URL: /api/v1
+      BACKEND_URL: http://backend:3001
     volumes:
       - ./frontend:/app
-      - /app/node_modules
+      - frontend_modules:/app/node_modules
     ports:
       - "5173:5173"
     depends_on:
@@ -62,3 +65,5 @@ services:
 volumes:
   postgres_data:
   uploads:
+  backend_modules:
+  frontend_modules:

@@ -1,5 +1,4 @@
 import { useState } from 'react';
-import { Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../../lib/api';
 
@@ -10,6 +9,8 @@ interface Report {
   subjectTeamId: string | null;
   reportDate: string;
   summary: string | null;
+  strengths: string | null;
+  weaknesses: string | null;
   overallRating: number | null;
   recommendation: string | null;
   visibility: string;

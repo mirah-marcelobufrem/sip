@@ -14,9 +14,7 @@ interface ShotChartProps {
   showZones?: boolean;
 }
 
-const COURT_RATIO = 0.53;
-
-export function ShotChart({ shots, width = 400, height = 400 * 0.53, showZones = false }: ShotChartProps) {
+export function ShotChart({ shots, width = 400, height = 400 * 0.53 }: ShotChartProps) {
   const w = width;
   const h = height;
 
