@@ -2,64 +2,138 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## Project Status
+## What This Is
 
-This is a greenfield project. No application source code exists yet — only git config, agent definitions, and `.gitignore` conventions are in place.
+SIP Scout — basketball scouting and live stat tracking app. Full spec: [.work/project_spec.txt](.work/project_spec.txt). Implementation plan with 6 waves × 12 sprints: [.work/plan.txt](.work/plan.txt).
 
-## Intended Stack (inferred from agent definitions and .gitignore)
+## Tech Stack
 
 | Layer | Technology |
-|---|---|
-| Reverse proxy | nginx |
-| Workflow automation | n8n |
-| Backend | Node.js / Express.js / TypeScript |
-| Database | PostgreSQL |
-| Frontend | React 18 / TypeScript / CSS Modules |
-| Containerization | Docker Compose |
-| CI/CD | GitHub Actions |
+| --- | --- |
+| Frontend | React 19, Vite 6, Tailwind CSS v4, TanStack Query v5, React Router v7, Zustand v5 |
+| Backend | Express 5, Node.js 22 LTS, TypeScript strict |
+| ORM | Drizzle ORM + Drizzle Kit |
+| Auth | JWT (jose) + bcrypt |
+| Database | PostgreSQL 17 |
+| Charts | Recharts (data charts), custom SVG (shot chart) |
+| AI | Anthropic Claude API (`@anthropic-ai/sdk`) |
+| Containers | Docker Compose (dev), docker-compose.prod.yml (production/AWS) |
+| Proxy | nginx (production container + nginx.conf.template) |
+| CI/CD | GitHub Actions (.github/workflows/ci.yml + deploy.yml) |
 
-## Infrastructure Conventions
-
-**nginx config generation** — `nginx/n8n.conf` is generated (not committed). Always regenerate it before building:
+## Common Commands
 
 ```bash
-bash scripts/generate-nginx-conf.sh
+# Full stack (Docker Desktop)
+docker compose up
+
+# Backend dev
+cd backend && npm run dev         # http://localhost:3001
+cd backend && npm run typecheck
+cd backend && npm run test:unit
+cd backend && npm run test:integration
+cd backend && npm run db:migrate
+cd backend && npm run db:generate  # after schema changes
+
+# Frontend dev
+cd frontend && npm run dev         # http://localhost:5173
+cd frontend && npm run typecheck
+cd frontend && npm test
+
+# nginx config
+bash nginx/generate-nginx-conf.sh  # DOMAIN=example.com bash nginx/generate-nginx-conf.sh
 ```
 
-**Local scratch space** — place exploratory files, temporary outputs, and local-only notes in `local/` or `.work/`. Both are gitignored.
+## Architecture — Clean Architecture (Hexagonal)
 
-**Secrets** — never commit `.env`. Copy from `.env.example` if it exists; create one if scaffolding a new service.
+```text
+domain/ → application/ → infrastructure/ → presentation/
+```
 
-## Agent System
+### backend/src/domain/ — zero external imports
 
-Custom agent definitions live in `.claude/agents/` (gitignored — local only). Available agents:
+- `entities/` — plain TypeScript interfaces (User, Player, Game, StatEvent…)
+- `repositories/` — repository interfaces (ports)
+- `stat-calculators.ts` — all derived stat logic (eFG%, TS%, +/-, shot zone, run detection)
 
-| File | Role |
-|---|---|
-| `engineering-backend-architect.md` | System design, DB schema, API architecture |
-| `engineering-frontend-developer.md` | React/TypeScript UI, performance, accessibility |
-| `engineering-software-architect.md` | ADRs, bounded contexts, trade-off analysis |
-| `engineering-senior-developer.md` | Laravel/Livewire/FluxUI premium implementation |
-| `engineering-devops-automator.md` | Docker, CI/CD, cloud infrastructure |
-| `design-ui-designer.md` | Design tokens, component libraries, WCAG compliance |
-| `automation-governance-architect.md` | n8n workflow governance and approval |
-| `testing-api-tester.md` | API validation and integration testing |
-| `testing-reality-checker.md` | Evidence-based production readiness gating |
+### backend/src/application/ — imports domain only
 
-Invoke via `@agent-name` in Claude Code or use the Agent tool with the matching `subagent_type`.
+- One file per use case: `registerUser.ts`, `loginUser.ts`, `recordStatEvent.ts`, `recordSubstitution.ts`…
+- Each use case is a single exported async function; dependencies injected as parameters
+
+### backend/src/infrastructure/ — implements domain interfaces
+
+- `database/schema/` — Drizzle table definitions (one file per entity group)
+- `database/repositories/` — Drizzle implementations of domain repository interfaces
+- `database/connection.ts` — singleton pool + `getDb()`
+- `auth/jwt.ts` — token generation + verification
+- `auth/token-hash.ts` — SHA-256 hash for refresh tokens
+
+### backend/src/presentation/ — Express routes + middleware
+
+- Routes instantiate repository classes and call use cases
+- `middleware/auth.middleware.ts` — JWT authenticate + requireRole
+- `middleware/error.middleware.ts` — maps error codes to HTTP status
+
+### frontend/src/
+
+- `features/` — page-level modules (auth, teams, players, games, live, analytics, scouting, tournaments)
+- `components/` — shared UI: AppShell, ShotChart (custom SVG), charts (Recharts)
+- `lib/api.ts` — the ONLY file that fetches from the backend; auto-refreshes token on 401
+- `store/auth.store.ts` — Zustand + persist; holds accessToken, refreshToken, user
+
+## Key Domain Rules
+
+- `stat-calculators.ts` is the single source of truth for ALL derived stats (PTS, FGM, eFG%, TS%, +/-, shot zones, scoring runs). Never compute stats inline in routes or components.
+- All DB migrations are Drizzle-managed (`npm run db:generate` → `npm run db:migrate`). Never write raw SQL migration files.
+- Every entity has `id UUID PK`, `created_at`, `updated_at`, `deleted_at` (soft delete).
+- Soft-delete everywhere — `deleted_at IS NULL` filter is implicit in repository queries.
+- STAT_TYPE enum: `2PM | 2PA | 3PM | 3PA | FTM | FTA | OREB | DREB | AST | TO | STL | BLK | DFD | PF | TF | FF | SUB_IN | SUB_OUT | PERIOD_START | PERIOD_END | TIMEOUT`
+- Shot zones are assigned by `classifyShotZone(x, y)` — x/y are normalized 0.0–1.0.
+
+## RBAC
+
+Roles per team: `OWNER > COACH > ASSISTANT > SCOUT > VIEWER`
+
+- `requireRole('OWNER', 'COACH')` middleware guards destructive routes
+- Players can only view their own data (not other players' scouting data)
 
 ## n8n Workflow Conventions
 
-All production workflows must follow the 10-stage pipeline defined in `automation-governance-architect.md`:
+Any automation workflows follow the governance model in `.claude/agents/automation-governance-architect.md`:
+- Naming: `[ENV]-[SYSTEM]-[PROCESS]-[ACTION]-v[MAJOR.MINOR]`
+- All workflows must include error branches and fallback paths
 
-`Trigger → Validation → Normalization → Business Logic → External Actions → Result Validation → Logging → Error Branch → Fallback → Completion`
+## Testing Rules
 
-Naming: `[ENV]-[SYSTEM]-[PROCESS]-[ACTION]-v[MAJOR.MINOR]`  
-Example: `PROD-CRM-LeadIntake-CreateRecord-v1.0`
+- Unit tests: mock repository interfaces only; live in `tests/unit/`
+- Integration tests: real PostgreSQL 17; live in `tests/integration/`
+- Each test file mirrors its source: `src/application/auth/registerUser.ts` → `tests/unit/auth/registerUser.test.ts`
+- Run unit tests without Docker; integration tests require the `postgres` service
 
-## Architecture Guardrails
+## AWS Migration Path
 
-- All DB migrations must be idempotent (`CREATE TABLE IF NOT EXISTS`, `ADD COLUMN IF NOT EXISTS`)
-- Schema changes go inside the existing `initDB()` — no new migration files
-- CSS always uses design tokens via `var(--token)` — no hardcoded colors, shadows, or radius values
-- Frontend never imports from `infrastructure/` or `domain/` — only calls use cases via props
+Zero application code changes required:
+1. Swap Docker Compose → ECS Task Definitions or EC2
+2. Swap `STORAGE_PATH` local storage → `multer-s3` + S3 bucket
+3. Swap `.env` → AWS Secrets Manager
+4. Swap `postgres` container → RDS PostgreSQL 17
+5. Add CloudFront CDN in front of frontend
+
+## nginx Config Generation
+
+`nginx/nginx.conf` is gitignored — generated from the template:
+
+```bash
+bash nginx/generate-nginx-conf.sh                        # localhost
+DOMAIN=yourdomain.com bash nginx/generate-nginx-conf.sh # production
+```
+
+## Gitflow
+
+```
+main ← release/* ← develop ← feature/*
+```
+
+Active branch: `feature/basketball-scout-app` (from `develop`).
+Never commit directly to `main` or `develop`.
