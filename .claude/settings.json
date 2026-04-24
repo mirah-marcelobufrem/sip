@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(//Users/marcelobufrem/**)",
+      "Bash(chmod +x /Users/marcelobufrem/work/repositories/sip/start.sh /Users/marcelobufrem/work/repositories/sip/stop.sh)"
+    ],
+    "additionalDirectories": [
+      "/Users/marcelobufrem"
+    ]
+  }
+}
