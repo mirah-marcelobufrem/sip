@@ -2,6 +2,7 @@ import { useState, useCallback, useRef, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../../lib/api';
+import { CourtLocationPicker, type ShotStatType } from '../../components/charts/CourtLocationPicker';
 
 type StatType =
   | '2PM' | '2PA' | '3PM' | '3PA' | 'FTM' | 'FTA'
@@ -56,6 +57,7 @@ const STAT_BUTTONS: { type: StatType; label: string; color: string }[] = [
 ];
 
 const FOUL_BONUS_THRESHOLD = 5;
+const SHOT_STATS = new Set<StatType>(['2PM', '2PA', '3PM', '3PA']);
 
 function calcScore(events: StatEvent[], teamId: string | null): number {
   return events.reduce((acc, e) => {
@@ -114,6 +116,12 @@ export default function LiveRecordingPage() {
   const [subOut, setSubOut] = useState<string>('');
   const [subIn, setSubIn] = useState<string>('');
   const [showPeriodConfirm, setShowPeriodConfirm] = useState(false);
+  const [pendingShot, setPendingShot] = useState<{
+    playerId: string;
+    teamId: string;
+    statType: ShotStatType;
+    playerName: string;
+  } | null>(null);
   const undoStack = useRef<string[]>([]);
 
   const { data: game } = useQuery<Game>({
@@ -156,17 +164,20 @@ export default function LiveRecordingPage() {
   });
 
   const recordMutation = useMutation({
-    mutationFn: (payload: { playerId: string; teamId: string }) =>
+    mutationFn: (payload: { playerId: string; teamId: string; statType: StatType; xCourt?: number; yCourt?: number }) =>
       api.post<StatEvent>(`/games/${gameId}/events`, {
         period,
-        statType: selectedStat,
+        statType: payload.statType,
         playerId: payload.playerId,
         teamId: payload.teamId,
+        xCourt: payload.xCourt,
+        yCourt: payload.yCourt,
       }),
     onSuccess: (event) => {
       undoStack.current = [event.id, ...undoStack.current.slice(0, 19)];
       setSelectedStat(null);
       setSelectedTeam(null);
+      setPendingShot(null);
       queryClient.invalidateQueries({ queryKey: ['game-log', gameId] });
     },
   });
@@ -215,7 +226,18 @@ export default function LiveRecordingPage() {
       if (!selectedStat) return;
       const teamId = side === 'home' ? game?.homeTeamId : game?.awayTeamId;
       if (!teamId) return;
-      recordMutation.mutate({ playerId: player.id, teamId });
+
+      if (SHOT_STATS.has(selectedStat as ShotStatType)) {
+        setPendingShot({
+          playerId: player.id,
+          teamId,
+          statType: selectedStat as ShotStatType,
+          playerName: `#${player.jerseyNumber ?? '?'} ${player.lastName}`,
+        });
+        return;
+      }
+
+      recordMutation.mutate({ playerId: player.id, teamId, statType: selectedStat });
     },
     [selectedStat, game, recordMutation],
   );
@@ -477,6 +499,31 @@ export default function LiveRecordingPage() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Court location picker for shot events */}
+      {pendingShot && (
+        <CourtLocationPicker
+          statType={pendingShot.statType}
+          playerName={pendingShot.playerName}
+          onConfirm={(x, y) => {
+            recordMutation.mutate({
+              playerId: pendingShot.playerId,
+              teamId: pendingShot.teamId,
+              statType: pendingShot.statType,
+              xCourt: x,
+              yCourt: y,
+            });
+          }}
+          onSkip={() => {
+            recordMutation.mutate({
+              playerId: pendingShot.playerId,
+              teamId: pendingShot.teamId,
+              statType: pendingShot.statType,
+            });
+          }}
+          onCancel={() => setPendingShot(null)}
+        />
       )}
 
       {/* Period advance confirmation */}
