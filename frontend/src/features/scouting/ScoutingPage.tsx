@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../../lib/api';
+import { RadarChart } from '../../components/charts/RadarChart';
 
 function AIScoutingAssist() {
   const [prompt, setPrompt] = useState('');
@@ -47,6 +48,7 @@ interface Report {
   strengths: string | null;
   weaknesses: string | null;
   overallRating: number | null;
+  skillRatings: Record<string, number> | null;
   recommendation: string | null;
   visibility: string;
   shareToken: string | null;
@@ -54,12 +56,44 @@ interface Report {
   isOpponentReport: boolean;
 }
 
+const SKILL_LABELS: [string, string][] = [
+  ['scoring', 'Scoring'],
+  ['ballHandling', 'Ball Handling'],
+  ['passing', 'Passing'],
+  ['offBallMovement', 'Off-Ball Movement'],
+  ['defenseOnBall', 'Defense (On-Ball)'],
+  ['defenseHelp', 'Defense (Help)'],
+  ['rebounding', 'Rebounding'],
+  ['athleticism', 'Athleticism'],
+  ['basketballIq', 'Basketball IQ'],
+  ['clutch', 'Clutch'],
+];
+
 const RECOMMENDATION_COLOR: Record<string, string> = {
   sign: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400',
   monitor: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400',
   pass: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400',
   no_action: 'bg-gray-100 text-gray-500 dark:bg-gray-800 dark:text-gray-400',
 };
+
+function SkillRatingInput({ label, value, onChange }: { label: string; value: string; onChange: (v: string) => void }) {
+  return (
+    <div className="flex items-center gap-2">
+      <label className="text-xs text-gray-600 dark:text-gray-400 w-36 shrink-0">{label}</label>
+      <input
+        type="range" min={0} max={10} step={1}
+        value={value === '' ? 0 : Number(value)}
+        onChange={(e) => onChange(e.target.value)}
+        className="flex-1 accent-brand-600"
+      />
+      <span className="text-xs font-bold text-brand-600 dark:text-brand-400 w-6 text-right">
+        {value === '' ? '—' : value}
+      </span>
+    </div>
+  );
+}
+
+const EMPTY_SKILLS = Object.fromEntries(SKILL_LABELS.map(([k]) => [k, '']));
 
 export default function ScoutingPage() {
   const queryClient = useQueryClient();
@@ -71,6 +105,7 @@ export default function ScoutingPage() {
   const [rating, setRating] = useState('');
   const [recommendation, setRecommendation] = useState('');
   const [isOpponent, setIsOpponent] = useState(false);
+  const [skillInputs, setSkillInputs] = useState<Record<string, string>>(EMPTY_SKILLS);
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
   const { data: reports = [], isLoading } = useQuery<Report[]>({
@@ -78,12 +113,18 @@ export default function ScoutingPage() {
     queryFn: () => api.get('/scouting-reports'),
   });
 
+  const resetForm = () => {
+    setTitle(''); setSummary(''); setStrengths(''); setWeaknesses('');
+    setRating(''); setRecommendation(''); setIsOpponent(false);
+    setSkillInputs(EMPTY_SKILLS);
+  };
+
   const createMutation = useMutation({
     mutationFn: (data: object) => api.post('/scouting-reports', data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['scouting-reports'] });
       setShowCreate(false);
-      setTitle(''); setSummary(''); setStrengths(''); setWeaknesses(''); setRating(''); setRecommendation('');
+      resetForm();
     },
   });
 
@@ -97,6 +138,24 @@ export default function ScoutingPage() {
       api.post<{ shareToken: string | null }>(`/scouting-reports/${id}/share`, { revoke }),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['scouting-reports'] }),
   });
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    const builtSkills = Object.fromEntries(
+      SKILL_LABELS.map(([k]) => [k, skillInputs[k] !== '' ? Number(skillInputs[k]) : 0])
+    );
+    const hasAnySkill = Object.values(builtSkills).some((v) => v > 0);
+    createMutation.mutate({
+      title,
+      summary: summary || undefined,
+      strengths: strengths || undefined,
+      weaknesses: weaknesses || undefined,
+      overallRating: rating !== '' ? Number(rating) : undefined,
+      skillRatings: hasAnySkill ? builtSkills : undefined,
+      recommendation: recommendation || undefined,
+      isOpponentReport: isOpponent,
+    });
+  };
 
   return (
     <div className="p-6 max-w-4xl mx-auto">
@@ -167,6 +226,38 @@ export default function ScoutingPage() {
                     </div>
                   )}
                 </div>
+
+                {r.skillRatings && Object.values(r.skillRatings).some((v) => v > 0) && (
+                  <div>
+                    <p className="text-xs font-medium text-gray-500 uppercase mb-3">Skill Ratings</p>
+                    <div className="flex flex-col sm:flex-row items-center gap-4">
+                      <div className="shrink-0">
+                        <RadarChart
+                          axes={SKILL_LABELS.map(([k, label]) => ({ label, value: r.skillRatings?.[k] ?? 0 }))}
+                          size={200}
+                        />
+                      </div>
+                      <div className="flex-1 grid grid-cols-1 gap-1 w-full">
+                        {SKILL_LABELS.map(([k, label]) => {
+                          const val = r.skillRatings?.[k] ?? 0;
+                          return (
+                            <div key={k} className="flex items-center gap-2">
+                              <span className="text-xs text-gray-500 w-36 shrink-0">{label}</span>
+                              <div className="flex-1 bg-gray-100 dark:bg-gray-800 rounded-full h-1.5">
+                                <div
+                                  className="bg-brand-600 h-1.5 rounded-full transition-all"
+                                  style={{ width: `${val * 10}%` }}
+                                />
+                              </div>
+                              <span className="text-xs font-bold text-brand-600 dark:text-brand-400 w-4 text-right">{val}</span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </div>
+                )}
+
                 {r.tags && r.tags.length > 0 && (
                   <div className="flex flex-wrap gap-1">
                     {r.tags.map((tag) => (
@@ -228,24 +319,10 @@ export default function ScoutingPage() {
       </div>
 
       {showCreate && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50 overflow-auto">
-          <div className="bg-white dark:bg-gray-900 rounded-xl p-6 w-full max-w-lg shadow-elevated my-4">
+        <div className="fixed inset-0 bg-black/50 flex items-start justify-center p-4 z-50 overflow-y-auto">
+          <div className="bg-white dark:bg-gray-900 rounded-xl p-6 w-full max-w-lg shadow-elevated my-8">
             <h2 className="text-lg font-semibold mb-4 text-gray-900 dark:text-gray-100">New Scouting Report</h2>
-            <form
-              onSubmit={(e) => {
-                e.preventDefault();
-                createMutation.mutate({
-                  title,
-                  summary: summary || undefined,
-                  strengths: strengths || undefined,
-                  weaknesses: weaknesses || undefined,
-                  overallRating: rating !== '' ? Number(rating) : undefined,
-                  recommendation: recommendation || undefined,
-                  isOpponentReport: isOpponent,
-                });
-              }}
-              className="space-y-4"
-            >
+            <form onSubmit={handleSubmit} className="space-y-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Title *</label>
                 <input
@@ -285,6 +362,21 @@ export default function ScoutingPage() {
                   />
                 </div>
               </div>
+
+              <div>
+                <p className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Skill Ratings (0–10)</p>
+                <div className="space-y-2 bg-gray-50 dark:bg-gray-800/50 rounded-lg p-3">
+                  {SKILL_LABELS.map(([key, label]) => (
+                    <SkillRatingInput
+                      key={key}
+                      label={label}
+                      value={skillInputs[key]}
+                      onChange={(v) => setSkillInputs((prev) => ({ ...prev, [key]: v }))}
+                    />
+                  ))}
+                </div>
+              </div>
+
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Rating (1–10)</label>
@@ -317,7 +409,7 @@ export default function ScoutingPage() {
                 Opponent report
               </label>
               <div className="flex gap-2 justify-end">
-                <button type="button" onClick={() => setShowCreate(false)} className="px-4 py-2 text-sm text-gray-600 hover:text-gray-800">Cancel</button>
+                <button type="button" onClick={() => { setShowCreate(false); resetForm(); }} className="px-4 py-2 text-sm text-gray-600 hover:text-gray-800">Cancel</button>
                 <button
                   type="submit"
                   disabled={createMutation.isPending}

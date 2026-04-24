@@ -1,10 +1,15 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { useQuery, useMutation } from '@tanstack/react-query';
 import { api } from '../../lib/api';
+import { GameFlowChart } from '../../components/charts/GameFlowChart';
 
 interface BoxRow {
   playerId: string;
+  playerName: string | null;
+  jerseyNumber: number | null;
+  teamId: string | null;
+  isHomeTeam: boolean;
   pts: number;
   fgm: number;
   fga: number;
@@ -35,15 +40,148 @@ interface Game {
   homeTeamId: string | null;
 }
 
-function fmt(n: number | null, decimals = 1): string {
+interface FlowData {
+  flowPoints: { period: number; clockTimeSeconds: number | null; homeScore: number; awayScore: number; differential: number }[];
+  scoringRuns: { teamId: string; points: number; startPeriod: number; endPeriod: number }[];
+}
+
+type SortKey = keyof Pick<BoxRow, 'pts' | 'reb' | 'ast' | 'to' | 'stl' | 'blk' | 'pf' | 'fga' | 'plusMinus' | 'efgPct'>;
+
+function pct(n: number | null): string {
   if (n === null) return '—';
-  return (n * 100).toFixed(decimals) + '%';
+  return `${(n * 100).toFixed(1)}%`;
+}
+
+function totals(rows: BoxRow[]) {
+  const sum = (key: keyof BoxRow) => rows.reduce((acc, r) => acc + ((r[key] as number) ?? 0), 0);
+  const t = {
+    pts: sum('pts'), fgm: sum('fgm'), fga: sum('fga'),
+    threepm: sum('threepm'), threepa: sum('threepa'),
+    ftm: sum('ftm'), fta: sum('fta'),
+    reb: sum('reb'), ast: sum('ast'), to: sum('to'),
+    stl: sum('stl'), blk: sum('blk'), pf: sum('pf'),
+  };
+  return {
+    ...t,
+    fgPct: t.fga > 0 ? t.fgm / t.fga : null,
+    threePct: t.threepa > 0 ? t.threepm / t.threepa : null,
+    ftPct: t.fta > 0 ? t.ftm / t.fta : null,
+    efgPct: t.fga > 0 ? (t.fgm + 0.5 * t.threepm) / t.fga : null,
+  };
+}
+
+function BoxTable({ rows, label }: { rows: BoxRow[]; label: string }) {
+  const [sortKey, setSortKey] = useState<SortKey>('pts');
+  const [sortAsc, setSortAsc] = useState(false);
+
+  const sorted = useMemo(
+    () =>
+      [...rows].sort((a, b) => {
+        const av = (a[sortKey] as number) ?? -Infinity;
+        const bv = (b[sortKey] as number) ?? -Infinity;
+        return sortAsc ? av - bv : bv - av;
+      }),
+    [rows, sortKey, sortAsc],
+  );
+
+  const tot = totals(rows);
+
+  const col = (key: SortKey, title: string) => (
+    <th
+      className="px-3 py-3 text-xs font-medium text-gray-500 uppercase cursor-pointer hover:text-gray-300 select-none"
+      onClick={() => { if (sortKey === key) setSortAsc((a) => !a); else { setSortKey(key); setSortAsc(false); } }}
+    >
+      {title}{sortKey === key ? (sortAsc ? ' ↑' : ' ↓') : ''}
+    </th>
+  );
+
+  return (
+    <div className="mb-6">
+      <h2 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2 px-1">{label}</h2>
+      <div className="overflow-x-auto rounded-xl border border-gray-200 dark:border-gray-800 shadow-card">
+        <table className="w-full text-sm bg-white dark:bg-gray-900">
+          <thead className="bg-gray-50 dark:bg-gray-800">
+            <tr>
+              <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase sticky left-0 bg-gray-50 dark:bg-gray-800 min-w-[120px]">Player</th>
+              {col('pts', 'PTS')}
+              <th className="px-3 py-3 text-xs font-medium text-gray-500 uppercase">FG</th>
+              <th className="px-3 py-3 text-xs font-medium text-gray-500 uppercase">FG%</th>
+              <th className="px-3 py-3 text-xs font-medium text-gray-500 uppercase">3P</th>
+              <th className="px-3 py-3 text-xs font-medium text-gray-500 uppercase">3P%</th>
+              <th className="px-3 py-3 text-xs font-medium text-gray-500 uppercase">FT</th>
+              <th className="px-3 py-3 text-xs font-medium text-gray-500 uppercase">FT%</th>
+              {col('reb', 'REB')}
+              {col('ast', 'AST')}
+              {col('to', 'TO')}
+              {col('stl', 'STL')}
+              {col('blk', 'BLK')}
+              {col('pf', 'PF')}
+              {col('efgPct', 'eFG%')}
+              {col('plusMinus', '+/-')}
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
+            {sorted.map((row) => (
+              <tr key={row.playerId} className="hover:bg-gray-50 dark:hover:bg-gray-800/50">
+                <td className="px-4 py-2.5 font-medium sticky left-0 bg-white dark:bg-gray-900">
+                  <span className="text-gray-400 font-mono text-xs mr-1.5">
+                    #{row.jerseyNumber ?? '?'}
+                  </span>
+                  <span className="text-gray-900 dark:text-gray-100 text-sm">
+                    {row.playerName ?? row.playerId.slice(0, 8)}
+                  </span>
+                </td>
+                <td className="px-3 py-2.5 text-center font-bold text-gray-900 dark:text-gray-100">{row.pts}</td>
+                <td className="px-3 py-2.5 text-center text-gray-600 dark:text-gray-400">{row.fgm}/{row.fga}</td>
+                <td className="px-3 py-2.5 text-center text-gray-600 dark:text-gray-400">{pct(row.fgPct)}</td>
+                <td className="px-3 py-2.5 text-center text-gray-600 dark:text-gray-400">{row.threepm}/{row.threepa}</td>
+                <td className="px-3 py-2.5 text-center text-gray-600 dark:text-gray-400">{pct(row.threePct)}</td>
+                <td className="px-3 py-2.5 text-center text-gray-600 dark:text-gray-400">{row.ftm}/{row.fta}</td>
+                <td className="px-3 py-2.5 text-center text-gray-600 dark:text-gray-400">{pct(row.ftPct)}</td>
+                <td className="px-3 py-2.5 text-center text-gray-600 dark:text-gray-400">{row.reb}</td>
+                <td className="px-3 py-2.5 text-center text-gray-600 dark:text-gray-400">{row.ast}</td>
+                <td className="px-3 py-2.5 text-center text-gray-600 dark:text-gray-400">{row.to}</td>
+                <td className="px-3 py-2.5 text-center text-gray-600 dark:text-gray-400">{row.stl}</td>
+                <td className="px-3 py-2.5 text-center text-gray-600 dark:text-gray-400">{row.blk}</td>
+                <td className="px-3 py-2.5 text-center text-gray-600 dark:text-gray-400">{row.pf}</td>
+                <td className="px-3 py-2.5 text-center text-gray-600 dark:text-gray-400">{pct(row.efgPct)}</td>
+                <td className={`px-3 py-2.5 text-center font-medium ${row.plusMinus > 0 ? 'text-green-600' : row.plusMinus < 0 ? 'text-red-500' : 'text-gray-400'}`}>
+                  {row.plusMinus > 0 ? `+${row.plusMinus}` : row.plusMinus}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+          <tfoot className="bg-gray-50 dark:bg-gray-800 border-t-2 border-gray-200 dark:border-gray-700">
+            <tr className="font-semibold text-gray-700 dark:text-gray-300">
+              <td className="px-4 py-2.5 sticky left-0 bg-gray-50 dark:bg-gray-800 text-xs uppercase tracking-wide">Team</td>
+              <td className="px-3 py-2.5 text-center">{tot.pts}</td>
+              <td className="px-3 py-2.5 text-center text-xs">{tot.fgm}/{tot.fga}</td>
+              <td className="px-3 py-2.5 text-center text-xs">{pct(tot.fgPct)}</td>
+              <td className="px-3 py-2.5 text-center text-xs">{tot.threepm}/{tot.threepa}</td>
+              <td className="px-3 py-2.5 text-center text-xs">{pct(tot.threePct)}</td>
+              <td className="px-3 py-2.5 text-center text-xs">{tot.ftm}/{tot.fta}</td>
+              <td className="px-3 py-2.5 text-center text-xs">{pct(tot.ftPct)}</td>
+              <td className="px-3 py-2.5 text-center">{tot.reb}</td>
+              <td className="px-3 py-2.5 text-center">{tot.ast}</td>
+              <td className="px-3 py-2.5 text-center">{tot.to}</td>
+              <td className="px-3 py-2.5 text-center">{tot.stl}</td>
+              <td className="px-3 py-2.5 text-center">{tot.blk}</td>
+              <td className="px-3 py-2.5 text-center">{tot.pf}</td>
+              <td className="px-3 py-2.5 text-center text-xs">{pct(tot.efgPct)}</td>
+              <td className="px-3 py-2.5 text-center">—</td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+    </div>
+  );
 }
 
 export default function BoxScorePage() {
   const { gameId } = useParams<{ gameId: string }>();
   const [recap, setRecap] = useState<string | null>(null);
   const [recapStyle, setRecapStyle] = useState<'formal' | 'casual' | 'social'>('casual');
+  const [showFlow, setShowFlow] = useState(false);
 
   const recapMutation = useMutation({
     mutationFn: () => api.post<{ recap: string }>(`/ai/game-recap/${gameId}`, { style: recapStyle }),
@@ -60,46 +198,23 @@ export default function BoxScorePage() {
     queryFn: () => api.get(`/games/${gameId}/box-score`),
   });
 
+  const { data: flowData } = useQuery<FlowData>({
+    queryKey: ['game-flow', gameId],
+    queryFn: () => api.get(`/games/${gameId}/flow`),
+    enabled: showFlow,
+  });
+
+  const homeRows = boxRows.filter((r) => r.isHomeTeam);
+  const awayRows = boxRows.filter((r) => !r.isHomeTeam);
+
   return (
     <div className="p-6 max-w-5xl mx-auto">
       <div className="flex items-center gap-4 mb-6">
         <Link to={-1 as never} className="text-gray-400 hover:text-gray-600 text-sm">← Back</Link>
-        <div>
+        <div className="flex-1">
           <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">Box Score</h1>
-          <div className="flex items-center gap-2 mt-3 flex-wrap">
-            <a
-              href={`/api/v1/export/game/${gameId}/csv`}
-              download
-              className="text-xs px-3 py-1.5 bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-200 rounded-lg transition-colors"
-            >
-              Export CSV
-            </a>
-            <a
-              href={`/api/v1/export/game/${gameId}/json`}
-              download
-              className="text-xs px-3 py-1.5 bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-200 rounded-lg transition-colors"
-            >
-              Export JSON
-            </a>
-            <select
-              value={recapStyle}
-              onChange={(e) => setRecapStyle(e.target.value as typeof recapStyle)}
-              className="text-xs px-2 py-1.5 border border-gray-300 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-800 focus:outline-none"
-            >
-              <option value="casual">Casual</option>
-              <option value="formal">Formal</option>
-              <option value="social">Social media</option>
-            </select>
-            <button
-              onClick={() => recapMutation.mutate()}
-              disabled={recapMutation.isPending}
-              className="text-xs px-3 py-1.5 bg-brand-50 dark:bg-brand-900/20 text-brand-700 dark:text-brand-300 hover:bg-brand-100 rounded-lg transition-colors disabled:opacity-60"
-            >
-              {recapMutation.isPending ? 'Generating…' : 'AI Game Recap'}
-            </button>
-          </div>
           {game && (
-            <p className="text-sm text-gray-500">
+            <p className="text-sm text-gray-500 mt-0.5">
               {new Date(game.date).toLocaleDateString()}
               {game.location ? ` · ${game.location}` : ''}
               {game.finalScoreHome !== null ? ` · ${game.finalScoreHome}–${game.finalScoreAway}` : ''}
@@ -108,10 +223,24 @@ export default function BoxScorePage() {
         </div>
       </div>
 
-      {isLoading && <p className="text-gray-500">Loading…</p>}
+      <div className="flex items-center gap-2 mb-6 flex-wrap">
+        <a href={`/api/v1/export/game/${gameId}/csv`} download className="text-xs px-3 py-1.5 bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-200 rounded-lg">Export CSV</a>
+        <a href={`/api/v1/export/game/${gameId}/json`} download className="text-xs px-3 py-1.5 bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-200 rounded-lg">Export JSON</a>
+        <button onClick={() => setShowFlow((v) => !v)} className="text-xs px-3 py-1.5 bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-200 rounded-lg">
+          {showFlow ? 'Hide' : 'Show'} Game Flow
+        </button>
+        <select value={recapStyle} onChange={(e) => setRecapStyle(e.target.value as typeof recapStyle)} className="text-xs px-2 py-1.5 border border-gray-300 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-800 focus:outline-none">
+          <option value="casual">Casual</option>
+          <option value="formal">Formal</option>
+          <option value="social">Social media</option>
+        </select>
+        <button onClick={() => recapMutation.mutate()} disabled={recapMutation.isPending} className="text-xs px-3 py-1.5 bg-brand-50 dark:bg-brand-900/20 text-brand-700 dark:text-brand-300 hover:bg-brand-100 rounded-lg disabled:opacity-60">
+          {recapMutation.isPending ? 'Generating…' : 'AI Game Recap'}
+        </button>
+      </div>
 
       {recap && (
-        <div className="bg-brand-50 dark:bg-brand-900/10 border border-brand-200 dark:border-brand-800 rounded-xl p-4 mb-4">
+        <div className="bg-brand-50 dark:bg-brand-900/10 border border-brand-200 dark:border-brand-800 rounded-xl p-4 mb-6">
           <div className="flex items-center justify-between mb-2">
             <p className="text-xs font-semibold text-brand-700 dark:text-brand-300 uppercase tracking-wider">AI Game Recap</p>
             <button onClick={() => setRecap(null)} className="text-xs text-gray-400 hover:text-gray-600">Dismiss</button>
@@ -121,67 +250,27 @@ export default function BoxScorePage() {
       )}
 
       {recapMutation.isError && (
-        <p className="text-sm text-red-500 mb-4">Failed to generate recap. Check that ANTHROPIC_API_KEY is configured.</p>
+        <p className="text-sm text-red-500 mb-4">Failed to generate recap. Check ANTHROPIC_API_KEY.</p>
       )}
 
-      {boxRows.length === 0 && !isLoading && (
+      {showFlow && (
+        <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 p-4 shadow-card mb-6">
+          <h2 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3">Game Flow</h2>
+          <GameFlowChart
+            flowPoints={flowData?.flowPoints ?? []}
+            scoringRuns={flowData?.scoringRuns ?? []}
+          />
+        </div>
+      )}
+
+      {isLoading && <p className="text-gray-500">Loading…</p>}
+
+      {!isLoading && boxRows.length === 0 && (
         <p className="text-center text-gray-400 py-10">No stats recorded for this game yet.</p>
       )}
 
-      {boxRows.length > 0 && (
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 shadow-card">
-            <thead className="bg-gray-50 dark:bg-gray-800">
-              <tr>
-                <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase sticky left-0 bg-gray-50 dark:bg-gray-800">Player</th>
-                <th className="px-3 py-3 text-xs font-medium text-gray-500 uppercase">PTS</th>
-                <th className="px-3 py-3 text-xs font-medium text-gray-500 uppercase">FG</th>
-                <th className="px-3 py-3 text-xs font-medium text-gray-500 uppercase">FG%</th>
-                <th className="px-3 py-3 text-xs font-medium text-gray-500 uppercase">3P</th>
-                <th className="px-3 py-3 text-xs font-medium text-gray-500 uppercase">3P%</th>
-                <th className="px-3 py-3 text-xs font-medium text-gray-500 uppercase">FT</th>
-                <th className="px-3 py-3 text-xs font-medium text-gray-500 uppercase">FT%</th>
-                <th className="px-3 py-3 text-xs font-medium text-gray-500 uppercase">REB</th>
-                <th className="px-3 py-3 text-xs font-medium text-gray-500 uppercase">AST</th>
-                <th className="px-3 py-3 text-xs font-medium text-gray-500 uppercase">TO</th>
-                <th className="px-3 py-3 text-xs font-medium text-gray-500 uppercase">STL</th>
-                <th className="px-3 py-3 text-xs font-medium text-gray-500 uppercase">BLK</th>
-                <th className="px-3 py-3 text-xs font-medium text-gray-500 uppercase">PF</th>
-                <th className="px-3 py-3 text-xs font-medium text-gray-500 uppercase">eFG%</th>
-                <th className="px-3 py-3 text-xs font-medium text-gray-500 uppercase">+/-</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
-              {boxRows
-                .sort((a, b) => b.pts - a.pts)
-                .map((row) => (
-                  <tr key={row.playerId} className="hover:bg-gray-50 dark:hover:bg-gray-800/50">
-                    <td className="px-4 py-3 font-mono text-xs text-gray-400 sticky left-0 bg-white dark:bg-gray-900">
-                      {row.playerId.slice(0, 8)}…
-                    </td>
-                    <td className="px-3 py-3 text-center font-bold text-gray-900 dark:text-gray-100">{row.pts}</td>
-                    <td className="px-3 py-3 text-center text-gray-600 dark:text-gray-400">{row.fgm}/{row.fga}</td>
-                    <td className="px-3 py-3 text-center text-gray-600 dark:text-gray-400">{fmt(row.fgPct)}</td>
-                    <td className="px-3 py-3 text-center text-gray-600 dark:text-gray-400">{row.threepm}/{row.threepa}</td>
-                    <td className="px-3 py-3 text-center text-gray-600 dark:text-gray-400">{fmt(row.threePct)}</td>
-                    <td className="px-3 py-3 text-center text-gray-600 dark:text-gray-400">{row.ftm}/{row.fta}</td>
-                    <td className="px-3 py-3 text-center text-gray-600 dark:text-gray-400">{fmt(row.ftPct)}</td>
-                    <td className="px-3 py-3 text-center text-gray-600 dark:text-gray-400">{row.reb}</td>
-                    <td className="px-3 py-3 text-center text-gray-600 dark:text-gray-400">{row.ast}</td>
-                    <td className="px-3 py-3 text-center text-gray-600 dark:text-gray-400">{row.to}</td>
-                    <td className="px-3 py-3 text-center text-gray-600 dark:text-gray-400">{row.stl}</td>
-                    <td className="px-3 py-3 text-center text-gray-600 dark:text-gray-400">{row.blk}</td>
-                    <td className="px-3 py-3 text-center text-gray-600 dark:text-gray-400">{row.pf}</td>
-                    <td className="px-3 py-3 text-center text-gray-600 dark:text-gray-400">{fmt(row.efgPct)}</td>
-                    <td className={`px-3 py-3 text-center font-medium ${row.plusMinus > 0 ? 'text-green-600' : row.plusMinus < 0 ? 'text-red-500' : 'text-gray-400'}`}>
-                      {row.plusMinus > 0 ? `+${row.plusMinus}` : row.plusMinus}
-                    </td>
-                  </tr>
-                ))}
-            </tbody>
-          </table>
-        </div>
-      )}
+      {homeRows.length > 0 && <BoxTable rows={homeRows} label="Home Team" />}
+      {awayRows.length > 0 && <BoxTable rows={awayRows} label="Away Team" />}
     </div>
   );
 }

@@ -1,13 +1,17 @@
 import { Router, type Request } from 'express';
 import { z } from 'zod';
+import { inArray } from 'drizzle-orm';
 import { getDb } from '../../infrastructure/database/connection.js';
 import { DrizzleGameRepository } from '../../infrastructure/database/repositories/game.repository.js';
 import { DrizzleStatEventRepository } from '../../infrastructure/database/repositories/stat-event.repository.js';
 import { DrizzleLineupSnapshotRepository } from '../../infrastructure/database/repositories/lineup-snapshot.repository.js';
+import { DrizzlePlayerRepository } from '../../infrastructure/database/repositories/player.repository.js';
 import { recordStatEvent, RecordStatEventInput } from '../../application/games/recordStatEvent.js';
 import { recordSubstitution, RecordSubstitutionInput } from '../../application/games/recordSubstitution.js';
 import { authenticate } from '../middleware/auth.middleware.js';
 import { aggregatePlayerEvents, deriveStats, detectScoringRuns, buildGameFlowPoints } from '../../domain/stat-calculators.js';
+import { players as playersTable } from '../../infrastructure/database/schema/players.schema.js';
+import { opponentPlayers as opponentPlayersTable } from '../../infrastructure/database/schema/opponents.schema.js';
 
 const router = Router();
 
@@ -72,19 +76,51 @@ router.get('/:gameId/log', async (req, res, next) => {
 router.get('/:gameId/box-score', async (req, res, next) => {
   try {
     const db = getDb();
-    const events = await new DrizzleStatEventRepository(db).findByGame(req.params.gameId);
+    const [game, events] = await Promise.all([
+      new DrizzleGameRepository(db).findById(req.params.gameId),
+      new DrizzleStatEventRepository(db).findByGame(req.params.gameId),
+    ]);
 
-    const playerMap = new Map<string, typeof events>();
+    const playerMap = new Map<string, { events: typeof events; teamId: string | null }>();
     for (const e of events) {
       if (!e.playerId) continue;
-      if (!playerMap.has(e.playerId)) playerMap.set(e.playerId, []);
-      playerMap.get(e.playerId)!.push(e);
+      if (!playerMap.has(e.playerId)) playerMap.set(e.playerId, { events: [], teamId: e.teamId });
+      playerMap.get(e.playerId)!.events.push(e);
     }
 
-    const boxScores = Array.from(playerMap.entries()).map(([playerId, playerEvents]) => {
+    const playerIds = Array.from(playerMap.keys());
+    let nameMap = new Map<string, { firstName: string; lastName: string; jerseyNumber: number | null }>();
+    if (playerIds.length > 0) {
+      const ownRows = await db.select({
+        id: playersTable.id,
+        firstName: playersTable.firstName,
+        lastName: playersTable.lastName,
+        jerseyNumber: playersTable.jerseyNumber,
+      }).from(playersTable).where(inArray(playersTable.id, playerIds));
+      for (const r of ownRows) nameMap.set(r.id, r);
+
+      const oppRows = await db.select({
+        id: opponentPlayersTable.id,
+        firstName: opponentPlayersTable.firstName,
+        lastName: opponentPlayersTable.lastName,
+        jerseyNumber: opponentPlayersTable.jerseyNumber,
+      }).from(opponentPlayersTable).where(inArray(opponentPlayersTable.id, playerIds));
+      for (const r of oppRows) nameMap.set(r.id, r);
+    }
+
+    const boxScores = Array.from(playerMap.entries()).map(([playerId, { events: playerEvents, teamId }]) => {
       const box = aggregatePlayerEvents(playerEvents);
       const derived = deriveStats(box);
-      return { ...box, ...derived };
+      const info = nameMap.get(playerId);
+      const isHomeTeam = teamId === game?.homeTeamId;
+      return {
+        ...box,
+        ...derived,
+        teamId,
+        isHomeTeam,
+        playerName: info ? `${info.firstName} ${info.lastName}` : null,
+        jerseyNumber: info?.jerseyNumber ?? null,
+      };
     });
 
     res.json(boxScores);
