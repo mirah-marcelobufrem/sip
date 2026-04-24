@@ -224,6 +224,7 @@ export default function BoxScorePage() {
       </div>
 
       <div className="flex items-center gap-2 mb-6 flex-wrap">
+        <Link to={`/games/${gameId}/shots`} className="text-xs px-3 py-1.5 bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-lg">Shot Map</Link>
         <a href={`/api/v1/export/game/${gameId}/csv`} download className="text-xs px-3 py-1.5 bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-200 rounded-lg">Export CSV</a>
         <a href={`/api/v1/export/game/${gameId}/json`} download className="text-xs px-3 py-1.5 bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-200 rounded-lg">Export JSON</a>
         <button onClick={() => setShowFlow((v) => !v)} className="text-xs px-3 py-1.5 bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-200 rounded-lg">

@@ -11,7 +11,20 @@ interface CourtLocationPickerProps {
 }
 
 const W = 400;
-const H = Math.round(W * 0.53);
+const H = Math.round(W * 0.65);
+
+// Compute 3-point arc radius so the arc passes through
+// (0.18*W, 0.22*H), (0.5*W, 0.44*H), (0.82*W, 0.22*H) —
+// matching classifyShotZone thresholds.
+function computeArcR(w: number, h: number): number {
+  const a = 0.44 * h;
+  const b = 0.22 * h;
+  const cSq = (0.32 * w) ** 2;
+  const arcCy = (a * a - cSq - b * b) / (2 * (a - b));
+  return Math.round(a - arcCy);
+}
+
+const ARC_R = computeArcR(W, H);
 
 export function CourtLocationPicker({ statType, playerName, onConfirm, onSkip, onCancel }: CourtLocationPickerProps) {
   const svgRef = useRef<SVGSVGElement>(null);
@@ -59,33 +72,34 @@ export function CourtLocationPicker({ statType, playerName, onConfirm, onSkip, o
         <rect width={W} height={H} fill="#c8a96e" rx={8} />
 
         {/* Paint */}
-        <rect x={W * 0.3} y={0} width={W * 0.4} height={H * 0.62} fill="none" stroke="white" strokeWidth={2} opacity={0.6} />
+        <rect x={W * 0.3} y={0} width={W * 0.4} height={H * 0.35} fill="none" stroke="white" strokeWidth={2} opacity={0.6} />
 
         {/* Free throw line */}
-        <line x1={W * 0.3} y1={H * 0.62} x2={W * 0.7} y2={H * 0.62} stroke="white" strokeWidth={2} opacity={0.6} />
+        <line x1={W * 0.3} y1={H * 0.35} x2={W * 0.7} y2={H * 0.35} stroke="white" strokeWidth={2} opacity={0.6} />
 
         {/* Basket */}
         <circle cx={W * 0.5} cy={H * 0.08} r={W * 0.02} fill="none" stroke="white" strokeWidth={2} />
 
-        {/* 3-point arc */}
+        {/* Restricted area */}
+        <ellipse cx={W * 0.5} cy={H * 0.08} rx={W * 0.055} ry={H * 0.055} fill="none" stroke="white" strokeWidth={1.5} opacity={0.5} />
+
+        {/* 3-point line: corner straights + arc (sweep=0 = CCW in SVG = curves away from baseline) */}
+        <line x1={W * 0.18} y1={0} x2={W * 0.18} y2={H * 0.22} stroke="white" strokeWidth={2} opacity={0.7} />
+        <line x1={W * 0.82} y1={0} x2={W * 0.82} y2={H * 0.22} stroke="white" strokeWidth={2} opacity={0.7} />
         <path
-          d={`M ${W * 0.06} ${H * 0.18} A ${W * 0.44} ${W * 0.44} 0 0 1 ${W * 0.94} ${H * 0.18}`}
+          d={`M ${W * 0.18} ${H * 0.22} A ${ARC_R} ${ARC_R} 0 0 0 ${W * 0.82} ${H * 0.22}`}
           fill="none"
           stroke="white"
           strokeWidth={2}
-          opacity={0.6}
+          opacity={0.7}
         />
-
-        {/* Corner 3 lines */}
-        <line x1={W * 0.06} y1={0} x2={W * 0.06} y2={H * 0.18} stroke="white" strokeWidth={2} opacity={0.6} />
-        <line x1={W * 0.94} y1={0} x2={W * 0.94} y2={H * 0.18} stroke="white" strokeWidth={2} opacity={0.6} />
 
         {/* Hover preview dot */}
         {hover && (
           made ? (
-            <circle cx={hover.x * W} cy={hover.y * H} r={9} fill={dotColor} opacity={0.75} />
+            <circle cx={hover.x * W} cy={hover.y * H} r={9} fill={dotColor} opacity={0.8} />
           ) : (
-            <circle cx={hover.x * W} cy={hover.y * H} r={9} fill="none" stroke={dotColor} strokeWidth={2.5} opacity={0.75} />
+            <circle cx={hover.x * W} cy={hover.y * H} r={9} fill="none" stroke={dotColor} strokeWidth={2.5} opacity={0.8} />
           )
         )}
       </svg>
