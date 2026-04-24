@@ -93,6 +93,7 @@ domain/ → application/ → infrastructure/ → presentation/
 
 - `features/` — page-level modules: auth, teams, players, games, live, analytics, scouting, tournaments, settings
 - `components/` — shared UI: AppShell, Toast, ConflictResolutionDialog
+  - `layout/AppShell.tsx` — top header bar + slide-in sidebar overlay. Layout is `flex-col h-screen` (header + main). Sidebar is `position: fixed`, slides in from the left with CSS `translate-x`. Toggle state is local `useState`; sidebar auto-closes on route change via `useEffect` watching `location.pathname`. Backdrop (`data-testid="nav-backdrop"`) closes the menu on click.
   - `charts/ShotChart.tsx` — custom SVG half-court, normalized x/y coords (0–1), zone coloring
   - `charts/RadarChart.tsx` — pure SVG polygon radar; props: `axes: { label, value }[]`, `size?`, `color?`; values on 0–10 scale
   - `charts/GameFlowChart.tsx` — Recharts `LineChart` wrapping score differential; props: `flowPoints[]`, `scoringRuns[]`, `homeLabel?`, `awayLabel?`
