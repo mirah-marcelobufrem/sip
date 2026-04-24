@@ -2,6 +2,8 @@
 
 Basketball intelligence app — live stat tracking, player & opponent scouting, and tournament management.
 
+> **v1.0.0** — all 6 delivery waves complete.
+
 ## Features
 
 - **Live stat recording** — 2-tap entry for any stat, both teams tracked at player level
@@ -24,7 +26,7 @@ Basketball intelligence app — live stat tracking, player & opponent scouting, 
 | Frontend | React 19 + Vite 6 + Tailwind CSS v4 |
 | State | TanStack Query v5 (server) + Zustand v5 (client) |
 | Routing | React Router v7 |
-| Charts | Recharts + custom SVG shot chart |
+| Charts | Recharts + custom SVG shot chart + SVG radar chart |
 | Backend | Express 5 + Node.js 22 LTS + TypeScript strict |
 | ORM | Drizzle ORM + Drizzle Kit |
 | Auth | JWT (jose) + bcrypt — 15 min access / 7 day refresh |
@@ -41,7 +43,8 @@ Basketball intelligence app — live stat tracking, player & opponent scouting, 
 
 ```bash
 cp .env.example .env          # fill in JWT_SECRET, JWT_REFRESH_SECRET
-docker compose up
+bash sip-start.sh             # health-check-aware startup (recommended)
+# or: docker compose up
 ```
 
 App is available at:
@@ -49,6 +52,8 @@ App is available at:
 - Frontend: <http://localhost:5173>
 - Backend API: <http://localhost:3001/api/v1>
 - Health check: <http://localhost:3001/health>
+
+> `sip-start.sh` polls the postgres container health status using `docker inspect` and waits up to 70 seconds before starting dependent services. Use it instead of bare `docker compose up` to avoid race conditions on first run.
 
 ## Development (without Docker)
 
@@ -170,7 +175,7 @@ Frontend follows feature-sliced modules — features never import from each othe
 main ← release/* ← develop ← feature/*
 ```
 
-Never commit directly to `main` or `develop`. All CI checks must pass before merge.
+v1.0.0 shipped via `release/1.0.0` → `main` (tagged). Active development continues from `develop`. Never commit directly to `main` or `develop`. All CI checks must pass before merge.
 
 ## License
 

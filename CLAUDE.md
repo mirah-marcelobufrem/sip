@@ -15,7 +15,7 @@ SIP Scout — basketball scouting and live stat tracking app. Full spec: [.work/
 | ORM | Drizzle ORM + Drizzle Kit |
 | Auth | JWT (jose) + bcrypt; access token 15 min, refresh token 7 days |
 | Database | PostgreSQL 17 |
-| Charts | Recharts (data charts), custom SVG (shot chart) |
+| Charts | Recharts (data charts), custom SVG (shot chart + radar chart) |
 | AI | Anthropic Claude API (`@anthropic-ai/sdk`) |
 | PDF export | Puppeteer (headless Chrome) |
 | Push notifications | Web Push (VAPID via `web-push`) |
@@ -28,7 +28,9 @@ SIP Scout — basketball scouting and live stat tracking app. Full spec: [.work/
 ## Common Commands
 
 ```bash
-# Full stack (Docker Desktop)
+# Full stack — recommended (Docker Desktop required)
+bash /Users/marcelobufrem/sip-start.sh   # health-check-aware startup script
+# or manually:
 docker compose up
 
 # Backend dev
@@ -86,7 +88,10 @@ domain/ → application/ → infrastructure/ → presentation/
 ### frontend/src/
 
 - `features/` — page-level modules: auth, teams, players, games, live, analytics, scouting, tournaments, settings
-- `components/` — shared UI: AppShell, ShotChart (custom SVG), charts (Recharts), Toast, ConflictResolutionDialog
+- `components/` — shared UI: AppShell, Toast, ConflictResolutionDialog
+  - `charts/ShotChart.tsx` — custom SVG half-court, normalized x/y coords (0–1), zone coloring
+  - `charts/RadarChart.tsx` — pure SVG polygon radar; props: `axes: { label, value }[]`, `size?`, `color?`; values on 0–10 scale
+  - `charts/GameFlowChart.tsx` — Recharts `LineChart` wrapping score differential; props: `flowPoints[]`, `scoringRuns[]`, `homeLabel?`, `awayLabel?`
 - `lib/api.ts` — the ONLY file that fetches from the backend; auto-refreshes token on 401
 - `lib/offlineQueue.ts` — IndexedDB queue for stat events recorded offline; flushed on `window.online`
 - `store/auth.store.ts` — Zustand + persist; holds accessToken, refreshToken, user
@@ -224,6 +229,11 @@ domain/ → application/ → infrastructure/ → presentation/
 - Account deletion: revokes all tokens, soft-deletes the user row, and anonymizes email to `deleted-{id}@deleted.invalid`.
 - STAT_TYPE enum: `2PM | 2PA | 3PM | 3PA | FTM | FTA | OREB | DREB | AST | TO | STL | BLK | DFD | PF | TF | FF | SUB_IN | SUB_OUT | PERIOD_START | PERIOD_END | TIMEOUT`
 - Shot zones are assigned by `classifyShotZone(x, y)` — x/y are normalized 0.0–1.0.
+- **Skill ratings** in scouting reports are stored as JSON under the key `skillRatings`. The 10 canonical keys are: `scoring`, `ballHandling`, `passing`, `offBallMovement`, `defenseOnBall`, `defenseHelp`, `rebounding`, `athleticism`, `basketballIq`, `clutch` (all 0–10). Never add new keys without updating `SKILL_LABELS` in both `ScoutingPage.tsx` and `PlayerCardPage.tsx`.
+- **Box-score endpoint** (`GET /games/:gameId/box-score`) returns per-player rows that include `playerName`, `jerseyNumber`, `teamId`, and `isHomeTeam`. Names are resolved by joining both `players` (own roster) and `opponent_players` tables. Always use these fields — never display raw `playerId` UUIDs.
+- **LiveRecordingPage** tracks both teams' lineups independently. The foul BONUS threshold is 5 fouls per quarter (`FOUL_BONUS_THRESHOLD = 5`). Substitutions go through `POST /games/:gameId/lineups`; period advance through `PATCH /games/:gameId`.
+- **AnalyticsDashboard** has three tabs: Season (leaders table + trend chart + efficiency metrics), Lineups (top 5-man combos from `/teams/:teamId/lineup-stats`), and Game Flow (game selector + `GameFlowChart` from `/games/:gameId/flow`). Lineup data only loads when the Lineups tab is active (`enabled: activeTab === 'lineup'`).
+- **PlayersPage** edit modal calls `PUT /teams/:teamId/players/:id` with full player fields including `status`. Valid status values: `active`, `injured`, `hidden`, `transferred`.
 
 ## RBAC
 
@@ -265,5 +275,6 @@ DOMAIN=yourdomain.com bash nginx/generate-nginx-conf.sh # production
 main ← release/* ← develop ← feature/*
 ```
 
-Active branch: `feature/wave-6-notifications-pwa` (from `develop`).
+Current state: all 6 waves shipped. `release/1.0.0` was merged to `main` (tagged `v1.0.0`) and back-merged to `develop`. Active work happens on `develop` or a new `feature/*` branch.
+
 Never commit directly to `main` or `develop`.
