@@ -29,7 +29,11 @@ SIP Scout — basketball scouting and live stat tracking app. Full spec: [.work/
 
 ```bash
 # Full stack — recommended (Docker Desktop required)
-bash /Users/marcelobufrem/sip-start.sh   # health-check-aware startup script
+bash start.sh             # health-check-aware startup script
+bash start.sh --build     # force full image rebuild
+bash stop.sh              # stop and remove containers (keeps DB volume)
+bash stop.sh --clean      # also remove node_modules volumes
+bash stop.sh --clean-all  # remove everything including database
 # or manually:
 docker compose up
 
@@ -254,6 +258,7 @@ Roles per team: `OWNER > COACH > ASSISTANT > SCOUT > VIEWER`
 ## AWS Migration Path
 
 Zero application code changes required:
+
 1. Swap Docker Compose → ECS Task Definitions or EC2
 2. Swap `STORAGE_PATH` local storage → `multer-s3` + S3 bucket
 3. Swap `.env` → AWS Secrets Manager
