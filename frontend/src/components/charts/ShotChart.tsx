@@ -15,7 +15,7 @@ interface ShotChartProps {
   mode?: 'dots' | 'heat';
 }
 
-export function ShotChart({ shots, width = 400, height = Math.round(400 * 0.65), mode = 'dots' }: ShotChartProps) {
+export function ShotChart({ shots, width = 400, height = Math.round(400 * 14 / 15), mode = 'dots' }: ShotChartProps) {
   const W = width;
   const H = height;
 
