@@ -137,7 +137,7 @@ export default function GameShotMapPage() {
         <ShotChart
           shots={filteredShots}
           width={600}
-          height={Math.round(600 * 0.53)}
+          height={Math.round(600 * 0.65)}
           mode={mode}
         />
       </div>
