@@ -12,7 +12,7 @@ interface CourtLocationPickerProps {
 }
 
 const W = 400;
-const H = Math.round(W * 0.65);
+const H = Math.round(W * 14 / 15);
 
 export function CourtLocationPicker({ statType, playerName, onConfirm, onSkip, onCancel }: CourtLocationPickerProps) {
   const svgRef = useRef<SVGSVGElement>(null);
