@@ -11,6 +11,7 @@ import PlayerCardPage from './features/players/PlayerCardPage';
 import GamesPage from './features/games/GamesPage';
 import LiveRecordingPage from './features/live/LiveRecordingPage';
 import BoxScorePage from './features/games/BoxScorePage';
+import GameShotMapPage from './features/games/GameShotMapPage';
 import AnalyticsDashboard from './features/analytics/AnalyticsDashboard';
 import ScoutingPage from './features/scouting/ScoutingPage';
 import TournamentsPage from './features/tournaments/TournamentsPage';
@@ -49,6 +50,7 @@ export default function App() {
           <Route path="teams/:teamId/games" element={<GamesPage />} />
           <Route path="games/:gameId/live" element={<LiveRecordingPage />} />
           <Route path="games/:gameId/box-score" element={<BoxScorePage />} />
+          <Route path="games/:gameId/shots" element={<GameShotMapPage />} />
           <Route path="teams/:teamId/analytics" element={<AnalyticsDashboard />} />
           <Route path="scouting" element={<ScoutingPage />} />
           <Route path="tournaments" element={<TournamentsPage />} />
