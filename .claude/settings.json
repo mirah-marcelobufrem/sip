@@ -3,7 +3,8 @@
     "allow": [
       "Read(//Users/marcelobufrem/**)",
       "Bash(chmod +x /Users/marcelobufrem/work/repositories/sip/start.sh /Users/marcelobufrem/work/repositories/sip/stop.sh)",
-      "Bash(grep -E \"package\\\\.json$\")"
+      "Bash(grep -E \"package\\\\.json$\")",
+      "Bash(ipconfig getifaddr *)"
     ],
     "additionalDirectories": [
       "/Users/marcelobufrem"

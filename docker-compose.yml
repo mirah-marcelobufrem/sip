@@ -30,7 +30,7 @@ services:
       JWT_EXPIRY: 15m
       JWT_REFRESH_EXPIRY: 7d
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
-      FRONTEND_URL: http://localhost:5173
+      FRONTEND_URL: ${FRONTEND_URL:-http://localhost:5173}
       PORT: 3001
       NODE_ENV: development
       STORAGE_PATH: /app/uploads
