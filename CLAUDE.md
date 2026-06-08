@@ -98,11 +98,19 @@ VAPID_SUBJECT=mailto:admin@example.com
 VITE_API_URL=http://localhost:3001/api/v1
 ```
 
+### Backend ESM Convention
+
+All backend TypeScript files use **`.js` extensions in import paths**, not `.ts`. This is required because the backend compiles to native ESM (`"module": "ESNext"`). Always write:
+
+```ts
+import { foo } from './bar.js';          // correct
+import type { Baz } from '@domain/entities/game.entity.js';  // correct
+```
+
 ### backend/src/domain/ — zero external imports
 
 - `entities/` — plain TypeScript interfaces (User, Player, Game, StatEvent…)
-- `repositories/` — repository interfaces (ports)
-- `value-objects/` — branded/validated types
+- `repositories/` — repository interfaces (ports); `value-objects/` exists but is currently empty
 - `stat-calculators.ts` — all derived stat logic (eFG%, TS%, +/-, shot zone, run detection)
 - `tournament-bracket.ts` — bracket seeding and advancement logic
 
@@ -127,6 +135,7 @@ VITE_API_URL=http://localhost:3001/api/v1
 - Routes instantiate repository classes and call use cases
 - `middleware/auth.middleware.ts` — JWT authenticate + requireRole; augments `Express.Request` with `req.userId: string` and `req.userRole?: TeamRole` (NOT `req.user`)
 - `middleware/error.middleware.ts` — maps error codes to HTTP status
+- **Error throwing convention:** `throw Object.assign(new Error('message'), { code: 'CODE' })`. The `code` is matched against `statusMap` in `errorMiddleware`. Known codes: `UNAUTHORIZED`, `FORBIDDEN`, `NOT_FOUND`, `EMAIL_TAKEN`, `INVALID_CREDENTIALS`, `INVALID_TOKEN`, `USER_NOT_FOUND`.
 
 ### frontend/src/
 
