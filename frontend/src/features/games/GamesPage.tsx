@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useQuery } from '@tanstack/react-query';
 import { api } from '../../lib/api';
+import GameSetupWizard from './GameSetupWizard';
 
 interface Game {
   id: string;
@@ -23,28 +24,11 @@ const STATUS_COLOR: Record<string, string> = {
 
 export default function GamesPage() {
   const { teamId } = useParams<{ teamId: string }>();
-  const queryClient = useQueryClient();
-  const [showCreate, setShowCreate] = useState(false);
-  const [date, setDate] = useState('');
-  const [location, setLocation] = useState('');
-  const [format, setFormat] = useState<'quarters' | 'halves'>('quarters');
-  const [numPeriods, setNumPeriods] = useState(4);
+  const [showWizard, setShowWizard] = useState(false);
 
   const { data: games = [], isLoading } = useQuery<Game[]>({
     queryKey: ['games', teamId],
     queryFn: () => api.get(`/teams/${teamId}/games`),
-  });
-
-  const createMutation = useMutation({
-    mutationFn: (data: object) => api.post(`/teams/${teamId}/games`, data),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['games', teamId] });
-      setShowCreate(false);
-      setDate('');
-      setLocation('');
-      setFormat('quarters');
-      setNumPeriods(4);
-    },
   });
 
   return (
@@ -52,7 +36,7 @@ export default function GamesPage() {
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">Games</h1>
         <button
-          onClick={() => setShowCreate(true)}
+          onClick={() => setShowWizard(true)}
           className="px-4 py-2 bg-brand-600 hover:bg-brand-700 text-white rounded-lg text-sm font-medium transition-colors"
         >
           + New Game
@@ -103,68 +87,11 @@ export default function GamesPage() {
         )}
       </div>
 
-      {showCreate && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
-          <div className="bg-white dark:bg-gray-900 rounded-xl p-6 w-full max-w-md shadow-elevated">
-            <h2 className="text-lg font-semibold mb-4 text-gray-900 dark:text-gray-100">New Game</h2>
-            <form
-              onSubmit={(e) => {
-                e.preventDefault();
-                createMutation.mutate({
-                  date: date ? new Date(date).toISOString() : undefined,
-                  location: location || undefined,
-                  format,
-                  numPeriods,
-                });
-              }}
-              className="space-y-4"
-            >
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Date & time</label>
-                <input
-                  type="datetime-local"
-                  value={date}
-                  onChange={(e) => setDate(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg text-sm bg-white dark:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-brand-500"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Location</label>
-                <input
-                  value={location}
-                  onChange={(e) => setLocation(e.target.value)}
-                  placeholder="Gym / arena name"
-                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg text-sm bg-white dark:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-brand-500"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Format</label>
-                <select
-                  value={format}
-                  onChange={(e) => {
-                    const v = e.target.value as 'quarters' | 'halves';
-                    setFormat(v);
-                    setNumPeriods(v === 'halves' ? 2 : 4);
-                  }}
-                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg text-sm bg-white dark:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-brand-500"
-                >
-                  <option value="quarters">Quarters (4)</option>
-                  <option value="halves">Halves (2)</option>
-                </select>
-              </div>
-              <div className="flex gap-2 justify-end">
-                <button type="button" onClick={() => setShowCreate(false)} className="px-4 py-2 text-sm text-gray-600 hover:text-gray-800">Cancel</button>
-                <button
-                  type="submit"
-                  disabled={createMutation.isPending}
-                  className="px-4 py-2 bg-brand-600 hover:bg-brand-700 text-white rounded-lg text-sm font-medium disabled:opacity-60"
-                >
-                  {createMutation.isPending ? 'Creating…' : 'Create Game'}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
+      {showWizard && teamId && (
+        <GameSetupWizard
+          teamId={teamId}
+          onClose={() => setShowWizard(false)}
+        />
       )}
     </div>
   );

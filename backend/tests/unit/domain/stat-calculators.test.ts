@@ -19,6 +19,7 @@ function makeEvent(overrides: Partial<StatEvent> = {}): StatEvent {
     xCourt: null,
     yCourt: null,
     lineupSnapshotId: null,
+    seq: null,
     createdAt: new Date(),
     ...overrides,
   };

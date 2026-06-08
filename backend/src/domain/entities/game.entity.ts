@@ -42,6 +42,7 @@ export interface StatEvent {
   xCourt: number | null;
   yCourt: number | null;
   lineupSnapshotId: string | null;
+  seq: number | null;
   createdAt: Date;
 }
 

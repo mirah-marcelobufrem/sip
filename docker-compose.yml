@@ -30,7 +30,7 @@ services:
       JWT_EXPIRY: 15m
       JWT_REFRESH_EXPIRY: 7d
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
-      FRONTEND_URL: http://localhost:5173
+      FRONTEND_URL: ${FRONTEND_URL:-http://localhost:5173}
       PORT: 3001
       NODE_ENV: development
       STORAGE_PATH: /app/uploads
@@ -43,7 +43,7 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-    command: sh -c "npm run db:migrate && npm run dev"
+    command: sh -c "npm ci && npm run db:migrate && npm run dev"
 
   frontend:
     build:

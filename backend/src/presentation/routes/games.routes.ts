@@ -1,17 +1,18 @@
 import { Router, type Request } from 'express';
 import { z } from 'zod';
-import { inArray } from 'drizzle-orm';
+import { and, eq, inArray } from 'drizzle-orm';
 import { getDb } from '../../infrastructure/database/connection.js';
 import { DrizzleGameRepository } from '../../infrastructure/database/repositories/game.repository.js';
 import { DrizzleStatEventRepository } from '../../infrastructure/database/repositories/stat-event.repository.js';
 import { DrizzleLineupSnapshotRepository } from '../../infrastructure/database/repositories/lineup-snapshot.repository.js';
-import { DrizzlePlayerRepository } from '../../infrastructure/database/repositories/player.repository.js';
 import { recordStatEvent, RecordStatEventInput } from '../../application/games/recordStatEvent.js';
 import { recordSubstitution, RecordSubstitutionInput } from '../../application/games/recordSubstitution.js';
 import { authenticate } from '../middleware/auth.middleware.js';
 import { aggregatePlayerEvents, deriveStats, detectScoringRuns, buildGameFlowPoints } from '../../domain/stat-calculators.js';
 import { players as playersTable } from '../../infrastructure/database/schema/players.schema.js';
 import { opponentPlayers as opponentPlayersTable } from '../../infrastructure/database/schema/opponents.schema.js';
+import { statEventAudits } from '../../infrastructure/database/schema/stat-events.schema.js';
+import { userTeamRoles } from '../../infrastructure/database/schema/users.schema.js';
 
 const router = Router();
 
@@ -19,11 +20,59 @@ router.use(authenticate);
 
 router.post('/:gameId/events', async (req, res, next) => {
   try {
-    const input = RecordStatEventInput.parse({ ...req.body, gameId: req.params.gameId });
+    const { insertAfterId, ...bodyRest } = req.body as Record<string, unknown>;
     const db = getDb();
+    const repo = new DrizzleStatEventRepository(db);
+
+    let computedSeq: number | undefined;
+
+    if (typeof insertAfterId === 'string') {
+      const afterEventId = z.string().uuid().parse(insertAfterId);
+      const afterEvent = await repo.findById(afterEventId);
+
+      if (!afterEvent || afterEvent.gameId !== req.params.gameId) {
+        res.status(404).json({ error: 'Reference event not found', code: 'NOT_FOUND' });
+        return;
+      }
+
+      // Load all events in the same period ordered by seq (nulls last) then createdAt
+      const periodEvents = await repo.findByGameAndPeriod(req.params.gameId, afterEvent.period);
+      const afterIndex = periodEvents.findIndex((e) => e.id === afterEventId);
+
+      const afterSeq = afterEvent.seq ?? afterEvent.createdAt.getTime();
+      const nextEvent = afterIndex >= 0 ? periodEvents[afterIndex + 1] : undefined;
+
+      if (nextEvent) {
+        const nextSeq = nextEvent.seq ?? nextEvent.createdAt.getTime();
+        computedSeq = (afterSeq + nextSeq) / 2.0;
+
+        // Guard against precision exhaustion: if gap is too small, re-sequence the period
+        if (Math.abs(computedSeq - afterSeq) < 0.001) {
+          // Assign seq = rowNumber * 1000 to all events in this period
+          await Promise.all(
+            periodEvents.map((e, idx) => repo.update(e.id, { seq: (idx + 1) * 1000 })),
+          );
+          // Recalculate after re-sequencing
+          const reAfter = await repo.findById(afterEventId);
+          const reNext = periodEvents[afterIndex + 1];
+          const reAfterSeq = reAfter?.seq ?? (afterIndex + 1) * 1000;
+          const reNextSeq = reNext?.seq ?? (afterIndex + 2) * 1000;
+          computedSeq = (reAfterSeq + reNextSeq) / 2.0;
+        }
+      } else {
+        computedSeq = afterSeq + 1000;
+      }
+    }
+
+    const input = RecordStatEventInput.parse({
+      ...bodyRest,
+      gameId: req.params.gameId,
+      ...(computedSeq !== undefined ? { seq: computedSeq } : {}),
+    });
+
     const event = await recordStatEvent(
       input,
-      new DrizzleStatEventRepository(db),
+      repo,
       new DrizzleLineupSnapshotRepository(db),
     );
     res.status(201).json(event);
@@ -47,6 +96,93 @@ router.delete('/:gameId/events/:eventId', async (req, res, next) => {
     next(err);
   }
 });
+
+const PatchEventBody = z.object({
+  playerId: z.string().uuid().optional(),
+  statType: z.enum([
+    '2PM', '2PA', '3PM', '3PA', 'FTM', 'FTA',
+    'OREB', 'DREB', 'AST', 'TO', 'STL', 'BLK', 'DFD',
+    'PF', 'TF', 'FF', 'SUB_IN', 'SUB_OUT',
+    'PERIOD_START', 'PERIOD_END', 'TIMEOUT',
+  ]).optional(),
+  clockSeconds: z.number().int().min(0).optional(),
+  teamId: z.string().uuid().optional(),
+});
+
+router.patch(
+  '/:gameId/events/:eventId',
+  async (req: Request<{ gameId: string; eventId: string }>, res, next) => {
+    try {
+      const body = PatchEventBody.parse(req.body);
+      const db = getDb();
+
+      // Verify user has OWNER or COACH role on the game's home team
+      const gameRepo = new DrizzleGameRepository(db);
+      const game = await gameRepo.findById(req.params.gameId);
+      if (!game) {
+        res.status(404).json({ error: 'Game not found', code: 'NOT_FOUND' });
+        return;
+      }
+
+      const teamId = game.homeTeamId;
+      if (teamId) {
+        const roleRows = await db
+          .select()
+          .from(userTeamRoles)
+          .where(
+            and(
+              eq(userTeamRoles.userId, req.userId),
+              eq(userTeamRoles.teamId, teamId),
+            ),
+          )
+          .limit(1);
+
+        const role = roleRows[0]?.role;
+        if (!role || !['OWNER', 'COACH'].includes(role)) {
+          res.status(403).json({ error: 'Insufficient permissions', code: 'FORBIDDEN' });
+          return;
+        }
+      }
+
+      const repo = new DrizzleStatEventRepository(db);
+      const existing = await repo.findById(req.params.eventId);
+      if (!existing || existing.gameId !== req.params.gameId) {
+        res.status(404).json({ error: 'Event not found', code: 'NOT_FOUND' });
+        return;
+      }
+
+      // Write audit row before applying the update
+      await db.insert(statEventAudits).values({
+        eventId: req.params.eventId,
+        editorUserId: req.userId,
+        originalValue: {
+          playerId: existing.playerId,
+          statType: existing.statType,
+          clockTimeSeconds: existing.clockTimeSeconds,
+          teamId: existing.teamId,
+        },
+        newValue: {
+          playerId: body.playerId ?? existing.playerId,
+          statType: body.statType ?? existing.statType,
+          clockTimeSeconds: body.clockSeconds ?? existing.clockTimeSeconds,
+          teamId: body.teamId ?? existing.teamId,
+        },
+        editedAt: new Date(),
+      });
+
+      const updates: Parameters<typeof repo.update>[1] = {};
+      if (body.playerId !== undefined) updates.playerId = body.playerId;
+      if (body.statType !== undefined) updates.statType = body.statType;
+      if (body.clockSeconds !== undefined) updates.clockTimeSeconds = body.clockSeconds;
+      if (body.teamId !== undefined) updates.teamId = body.teamId;
+
+      const updated = await repo.update(req.params.eventId, updates);
+      res.json(updated);
+    } catch (err) {
+      next(err);
+    }
+  },
+);
 
 router.post('/:gameId/lineups', async (req, res, next) => {
   try {

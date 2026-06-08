@@ -40,15 +40,23 @@ docker compose up
 # Backend dev
 cd backend && npm run dev         # http://localhost:3001
 cd backend && npm run typecheck
+cd backend && npm run lint
 cd backend && npm run test:unit
 cd backend && npm run test:integration
 cd backend && npm run db:migrate
 cd backend && npm run db:generate  # after schema changes
+cd backend && npm run db:studio    # Drizzle Studio GUI on http://localhost:4983
 
-# Frontend dev
+# Run a single backend test (Jest)
+cd backend && npx jest tests/unit/auth/registerUser.test.ts
+cd backend && npx jest tests/unit/games/  # all tests in a directory
+
+# Frontend dev (test runner is Vitest, not Jest)
 cd frontend && npm run dev         # http://localhost:5173
 cd frontend && npm run typecheck
-cd frontend && npm test
+cd frontend && npm run lint
+cd frontend && npm test            # vitest run (all)
+cd frontend && npx vitest run src/features/auth/LoginPage.test.tsx
 cd frontend && npx playwright test  # E2E (requires running stack)
 
 # nginx config
@@ -61,15 +69,54 @@ bash nginx/generate-nginx-conf.sh  # DOMAIN=example.com bash nginx/generate-ngin
 domain/ → application/ → infrastructure/ → presentation/
 ```
 
+### Path Aliases
+
+| Alias | Resolves to | Where |
+| --- | --- | --- |
+| `@domain/*` | `backend/src/domain/*` | backend tsconfig + jest |
+| `@application/*` | `backend/src/application/*` | backend tsconfig + jest |
+| `@infrastructure/*` | `backend/src/infrastructure/*` | backend tsconfig + jest |
+| `@presentation/*` | `backend/src/presentation/*` | backend tsconfig + jest |
+| `@/*` | `frontend/src/*` | frontend vite + vitest |
+
+### Required Environment Variables
+
+The root `.env` (gitignored, copy from `.env.example`) must include:
+
+```env
+DATABASE_URL=postgresql://sip:sip@localhost:5432/sip  # used by backend connection.ts
+JWT_SECRET=...
+JWT_REFRESH_SECRET=...
+ANTHROPIC_API_KEY=sk-ant-...  # AI routes no-op without it
+
+# Optional — push notifications disabled if absent
+VAPID_PUBLIC_KEY=...
+VAPID_PRIVATE_KEY=...
+VAPID_SUBJECT=mailto:admin@example.com
+
+# Optional — frontend uses /api/v1 by default (nginx proxy in prod)
+VITE_API_URL=http://localhost:3001/api/v1
+```
+
+### Backend ESM Convention
+
+All backend TypeScript files use **`.js` extensions in import paths**, not `.ts`. This is required because the backend compiles to native ESM (`"module": "ESNext"`). Always write:
+
+```ts
+import { foo } from './bar.js';          // correct
+import type { Baz } from '@domain/entities/game.entity.js';  // correct
+```
+
 ### backend/src/domain/ — zero external imports
 
 - `entities/` — plain TypeScript interfaces (User, Player, Game, StatEvent…)
-- `repositories/` — repository interfaces (ports)
+- `repositories/` — repository interfaces (ports); `value-objects/` exists but is currently empty
 - `stat-calculators.ts` — all derived stat logic (eFG%, TS%, +/-, shot zone, run detection)
+- `tournament-bracket.ts` — bracket seeding and advancement logic
 
 ### backend/src/application/ — imports domain only
 
-- One file per use case: `registerUser.ts`, `loginUser.ts`, `recordStatEvent.ts`, `recordSubstitution.ts`…
+- Only `auth/` and `games/` have dedicated use-case files: `registerUser.ts`, `loginUser.ts`, `refreshTokens.ts`, `recordStatEvent.ts`, `recordSubstitution.ts`. All other business logic (analytics, AI, export, scouting, tournaments, etc.) is implemented inline inside route files.
 - Each use case is a single exported async function; dependencies injected as parameters
 - **Zod parse pattern:** every use case calls `Schema.parse(rawInput)` internally — never rely on route-level validation alone
 - **Input type pattern:** use `z.input<typeof Schema>` for function parameters when the schema has `.default()` fields, so callers don't need to supply defaulted values (e.g. `RecordStatEventRawInput`)
@@ -88,18 +135,22 @@ domain/ → application/ → infrastructure/ → presentation/
 - Routes instantiate repository classes and call use cases
 - `middleware/auth.middleware.ts` — JWT authenticate + requireRole; augments `Express.Request` with `req.userId: string` and `req.userRole?: TeamRole` (NOT `req.user`)
 - `middleware/error.middleware.ts` — maps error codes to HTTP status
+- **Error throwing convention:** `throw Object.assign(new Error('message'), { code: 'CODE' })`. The `code` is matched against `statusMap` in `errorMiddleware`. Known codes: `UNAUTHORIZED`, `FORBIDDEN`, `NOT_FOUND`, `EMAIL_TAKEN`, `INVALID_CREDENTIALS`, `INVALID_TOKEN`, `USER_NOT_FOUND`.
 
 ### frontend/src/
 
 - `features/` — page-level modules: auth, teams, players, games, live, analytics, scouting, tournaments, settings
 - `components/` — shared UI: AppShell, Toast, ConflictResolutionDialog
   - `layout/AppShell.tsx` — top header bar + slide-in sidebar overlay. Layout is `flex-col h-screen` (header + main). Sidebar is `position: fixed`, slides in from the left with CSS `translate-x`. Toggle state is local `useState`; sidebar auto-closes on route change via `useEffect` watching `location.pathname`. Backdrop (`data-testid="nav-backdrop"`) closes the menu on click.
-  - `charts/ShotChart.tsx` — custom SVG half-court, normalized x/y coords (0–1), zone coloring
+  - `ui/ConflictResolutionDialog.tsx` — field-level conflict UI shown when the same entity was edited on two devices offline; props: `entityName`, `conflicts: { field, localValue, remoteValue, localUpdatedAt, remoteUpdatedAt }[]`, `onResolve`, `onDismiss`
+  - `charts/courtLines.tsx` — `<CourtLines W H />` shared SVG court geometry; imported by both `ShotChart` and `CourtLocationPicker` — edit court geometry here only
+  - `charts/ShotChart.tsx` — renders shot dots/heat on the half-court SVG; props: `shots[]`, `width?`, `height?`, `mode?: 'dots' | 'heat'`
+  - `charts/CourtLocationPicker.tsx` — full-screen modal SVG for tapping a shot location during live recording; shown for shot stat types (`2PM/2PA/3PM/3PA`); exports `ShotStatType`
   - `charts/RadarChart.tsx` — pure SVG polygon radar; props: `axes: { label, value }[]`, `size?`, `color?`; values on 0–10 scale
   - `charts/GameFlowChart.tsx` — Recharts `LineChart` wrapping score differential; props: `flowPoints[]`, `scoringRuns[]`, `homeLabel?`, `awayLabel?`
 - `lib/api.ts` — the ONLY file that fetches from the backend; auto-refreshes token on 401
 - `lib/offlineQueue.ts` — IndexedDB queue for stat events recorded offline; flushed on `window.online`
-- `store/auth.store.ts` — Zustand + persist; holds accessToken, refreshToken, user
+- `store/auth.store.ts` — Zustand + persist; `accessToken` is in-memory only (not persisted); only `refreshToken` + `user` survive a page reload — `refresh()` is called on 401 to silently get a new access token
 - `store/theme.store.ts` — Zustand + persist; holds theme (system/light/dark); call `initTheme()` on app boot
 - `hooks/useSettings.ts` — TanStack Query wrapper for GET/PUT /settings; `UserPreferences` type (language, units, theme, game format, foul limits, shot chart, opponent tracking, notification toggles, colors)
 - `hooks/usePushNotifications.ts` — VAPID subscription lifecycle (request permission → subscribe → save to backend); `PushStatus: 'unsupported' | 'denied' | 'granted' | 'prompt' | 'subscribing'`
@@ -118,6 +169,7 @@ domain/ → application/ → infrastructure/ → presentation/
 | `/teams/:teamId/games` | GamesPage |
 | `/games/:gameId/live` | LiveRecordingPage |
 | `/games/:gameId/box-score` | BoxScorePage |
+| `/games/:gameId/shots` | GameShotMapPage |
 | `/teams/:teamId/analytics` | AnalyticsDashboard |
 | `/scouting` | ScoutingPage |
 | `/tournaments` | TournamentsPage |
@@ -255,6 +307,7 @@ Roles per team: `OWNER > COACH > ASSISTANT > SCOUT > VIEWER`
 - Run unit tests without Docker; integration tests require the `postgres` service
 - E2E tests live in `frontend/e2e/` and run via Playwright — excluded from Vitest via `vitest.config.ts`
 - All mock IDs in tests must be valid UUIDs (e.g. `'00000000-0000-0000-0000-000000000001'`) — Zod uuid() validation runs inside use cases
+- Use factory functions (`makeUserRepo()`, `makeSettingsRepo()`) that return complete mock objects with `jest.fn()` stubs; pass `overrides` to customize per-test
 
 ## AWS Migration Path
 
@@ -274,6 +327,20 @@ Zero application code changes required:
 bash nginx/generate-nginx-conf.sh                        # localhost
 DOMAIN=yourdomain.com bash nginx/generate-nginx-conf.sh # production
 ```
+
+## Subagents
+
+This project uses the **global** Claude Code subagents located at `/Users/marcelobufrem/.claude/agents/`. There are no project-level agents — do not create a `.claude/agents/` directory here.
+
+Relevant agents for this project and their typical use:
+
+| Category | Folder | Use for |
+| --- | --- | --- |
+| `engineering/` | `engineering-frontend-developer`, `engineering-backend-architect`, `engineering-senior-developer`, `engineering-software-architect`, `engineering-devops-automator` | Feature implementation, architecture decisions, infra changes |
+| `testing/` | `testing-api-tester`, `testing-reality-checker` | API validation, production-readiness checks |
+| `design/` | `design-ui-designer` | UI/UX improvements |
+
+When orchestrating complex tasks, follow the standard chains from the global CLAUDE.md (PM → Backend → Frontend → QA → DevOps, etc.) using these global agents.
 
 ## GitFlow
 
