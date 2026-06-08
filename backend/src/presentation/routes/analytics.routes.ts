@@ -1,4 +1,5 @@
 import { Router, type Request } from 'express';
+import { z } from 'zod';
 import { getDb } from '../../infrastructure/database/connection.js';
 import { DrizzleGameRepository } from '../../infrastructure/database/repositories/game.repository.js';
 import { DrizzleStatEventRepository } from '../../infrastructure/database/repositories/stat-event.repository.js';
@@ -10,7 +11,20 @@ import {
   deriveStats,
   classifyShotZone,
   computeTeamEfficiency,
+  computePer36,
 } from '../../domain/stat-calculators.js';
+
+const TREND_STAT_KEYS = ['pts', 'ast', 'reb', 'fgm', 'fga', 'stl', 'blk', 'to', 'pf', 'oreb', 'dreb'] as const;
+
+function combinations<T>(arr: T[], k: number): T[][] {
+  if (k === 0) return [[]];
+  if (arr.length < k) return [];
+  const [first, ...rest] = arr;
+  return [
+    ...combinations(rest, k - 1).map((c) => [first, ...c]),
+    ...combinations(rest, k),
+  ];
+}
 
 const router = Router();
 router.use(authenticate);
@@ -35,15 +49,32 @@ router.get('/players/:playerId/shot-chart', async (req: Request<{ playerId: stri
 });
 
 // GET /teams/:teamId/players/season-stats — season aggregates per player
+// Query: dateFrom?, dateTo? (ISO-8601), per36? ('true')
 router.get('/teams/:teamId/players/season-stats', async (req: Request<{ teamId: string }>, res, next) => {
   try {
+    const QuerySchema = z.object({
+      dateFrom: z.string().optional(),
+      dateTo: z.string().optional(),
+      per36: z.string().optional(),
+    });
+    const query = QuerySchema.parse(req.query);
+
     const db = getDb();
-    const [players, games] = await Promise.all([
+    const [players, allGames] = await Promise.all([
       new DrizzlePlayerRepository(db).findByTeam(req.params.teamId),
       new DrizzleGameRepository(db).findByTeam(req.params.teamId, { status: 'completed' }),
     ]);
 
+    // Apply optional date filters
+    const games = allGames.filter((g) => {
+      if (query.dateFrom && g.date < new Date(query.dateFrom)) return false;
+      if (query.dateTo && g.date > new Date(query.dateTo)) return false;
+      return true;
+    });
+
     const gameIds = new Set(games.map((g) => g.id));
+    const usePer36 = query.per36 === 'true';
+
     const rows = await Promise.all(
       players.map(async (player) => {
         const events = await new DrizzleStatEventRepository(db).findByPlayer(player.id);
@@ -55,6 +86,15 @@ router.get('/teams/:teamId/players/season-stats', async (req: Request<{ teamId: 
         const gamesPlayed = new Set(gameEvents.map((e) => e.gameId)).size;
         box.gamesPlayed = gamesPlayed;
         const derived = deriveStats(box);
+
+        if (usePer36) {
+          const per36 = computePer36(box);
+          if (per36 !== null) {
+            // Replace counting stats with per-36 values; keep derived stats as-is
+            Object.assign(box, per36);
+          }
+        }
+
         return { player, box, derived, gamesPlayed };
       }),
     );
@@ -244,6 +284,186 @@ router.get('/games/:gameId/player-stats', async (req: Request<{ gameId: string }
       return { ...box, ...derived };
     });
     res.json(rows);
+  } catch (err) { next(err); }
+});
+
+// GET /teams/:teamId/trend-stats — per-game trend for a given stat
+// Query: stat (required), playerId? (uuid)
+router.get('/teams/:teamId/trend-stats', async (req: Request<{ teamId: string }>, res, next) => {
+  try {
+    const statKey = req.query.stat as string | undefined;
+    if (!statKey || !(TREND_STAT_KEYS as readonly string[]).includes(statKey)) {
+      res.status(400).json({
+        error: `Query param 'stat' must be one of: ${TREND_STAT_KEYS.join(', ')}`,
+        code: 'INVALID_STAT_KEY',
+      });
+      return;
+    }
+
+    const playerIdFilter = typeof req.query.playerId === 'string' ? req.query.playerId : undefined;
+
+    const db = getDb();
+    const games = await new DrizzleGameRepository(db).findByTeam(req.params.teamId, { status: 'completed' });
+    const sortedGames = [...games].sort((a, b) => a.date.getTime() - b.date.getTime());
+
+    const gameEntries = await Promise.all(
+      sortedGames.map(async (game) => {
+        const events = await new DrizzleStatEventRepository(db).findByGame(game.id);
+        const teamEvents = events.filter((e) => e.teamId === req.params.teamId);
+
+        const extractStat = (box: ReturnType<typeof aggregatePlayerEvents>): number => {
+          // statKey is validated against TREND_STAT_KEYS above; all keys exist on PlayerBoxScore as numbers
+          return (box as unknown as Record<string, number>)[statKey] ?? 0;
+        };
+
+        let value: number;
+        if (playerIdFilter) {
+          const playerEvents = teamEvents.filter((e) => e.playerId === playerIdFilter);
+          const box = playerEvents.length > 0 ? aggregatePlayerEvents(playerEvents) : null;
+          value = box ? extractStat(box) : 0;
+        } else {
+          // Sum across all players for team-level
+          const playerMap = new Map<string, typeof teamEvents>();
+          for (const e of teamEvents) {
+            if (!e.playerId) continue;
+            if (!playerMap.has(e.playerId)) playerMap.set(e.playerId, []);
+            playerMap.get(e.playerId)!.push(e);
+          }
+          value = 0;
+          for (const playerEvents of playerMap.values()) {
+            const box = aggregatePlayerEvents(playerEvents);
+            value += extractStat(box);
+          }
+        }
+
+        return {
+          gameId: game.id,
+          gameDate: game.date.toISOString(),
+          opponentLabel: game.notes ?? '',
+          value,
+        };
+      }),
+    );
+
+    res.json({ statKey, games: gameEntries });
+  } catch (err) { next(err); }
+});
+
+// GET /teams/:teamId/matchups — opponent history with W/L/avg breakdown
+// Query: opponentName? (string)
+router.get('/teams/:teamId/matchups', async (req: Request<{ teamId: string }>, res, next) => {
+  try {
+    const opponentName = typeof req.query.opponentName === 'string' ? req.query.opponentName : undefined;
+
+    const db = getDb();
+    const allGames = await new DrizzleGameRepository(db).findByTeam(req.params.teamId, { status: 'completed' });
+
+    const filtered = opponentName
+      ? allGames.filter((g) => g.notes?.toLowerCase().includes(opponentName.toLowerCase()))
+      : allGames;
+
+    // Sort descending by date
+    const sortedGames = [...filtered].sort((a, b) => b.date.getTime() - a.date.getTime());
+
+    let wins = 0;
+    let losses = 0;
+    let totalDiff = 0;
+    let totalTeamPts = 0;
+    let totalOppPts = 0;
+
+    const gameRows = sortedGames.map((game) => {
+      const isHome = game.homeTeamId === req.params.teamId;
+      const teamScore = isHome ? (game.finalScoreHome ?? 0) : (game.finalScoreAway ?? 0);
+      const oppScore = isHome ? (game.finalScoreAway ?? 0) : (game.finalScoreHome ?? 0);
+
+      const diff = teamScore - oppScore;
+      totalDiff += diff;
+      totalTeamPts += teamScore;
+      totalOppPts += oppScore;
+
+      const result: 'W' | 'L' | 'T' = teamScore > oppScore ? 'W' : teamScore < oppScore ? 'L' : 'T';
+      if (result === 'W') wins++;
+      else if (result === 'L') losses++;
+
+      return {
+        gameId: game.id,
+        date: game.date.toISOString(),
+        opponentLabel: game.notes ?? '',
+        teamScore,
+        oppScore,
+        result,
+      };
+    });
+
+    const count = sortedGames.length;
+    res.json({
+      record: { wins, losses },
+      avgScoreDiff: count > 0 ? totalDiff / count : 0,
+      avgPts: count > 0 ? totalTeamPts / count : 0,
+      avgOppPts: count > 0 ? totalOppPts / count : 0,
+      games: gameRows,
+    });
+  } catch (err) { next(err); }
+});
+
+// GET /teams/:teamId/combo-stats — 2-man or 3-man player combination stats
+// Query: size? ('2'|'3', default '2'), minEvents? (default '5')
+router.get('/teams/:teamId/combo-stats', async (req: Request<{ teamId: string }>, res, next) => {
+  try {
+    const sizeRaw = req.query.size === '3' ? 3 : 2;
+    const minEvents = Math.max(1, parseInt(typeof req.query.minEvents === 'string' ? req.query.minEvents : '5', 10) || 5);
+
+    const db = getDb();
+    const games = await new DrizzleGameRepository(db).findByTeam(req.params.teamId, { status: 'completed' });
+
+    const comboMap = new Map<string, { playerIds: string[]; eventCount: number; pts: number }>();
+
+    for (const game of games) {
+      const [events, snapshots] = await Promise.all([
+        new DrizzleStatEventRepository(db).findByGame(game.id),
+        new DrizzleLineupSnapshotRepository(db).findByGame(game.id),
+      ]);
+
+      // Index only snapshots belonging to this team
+      const snapshotMap = new Map(
+        snapshots
+          .filter((s) => s.teamId === req.params.teamId)
+          .map((s) => [s.id, s]),
+      );
+
+      for (const event of events) {
+        if (!event.lineupSnapshotId) continue;
+        const snapshot = snapshotMap.get(event.lineupSnapshotId);
+        if (!snapshot) continue;
+
+        const subsets = combinations([...snapshot.playerIds].sort(), sizeRaw);
+
+        for (const subset of subsets) {
+          const key = subset.join(',');
+          if (!comboMap.has(key)) {
+            comboMap.set(key, { playerIds: subset, eventCount: 0, pts: 0 });
+          }
+          const entry = comboMap.get(key)!;
+          entry.eventCount++;
+          if (event.statType === '2PM') entry.pts += 2;
+          else if (event.statType === '3PM') entry.pts += 3;
+          else if (event.statType === 'FTM') entry.pts += 1;
+        }
+      }
+    }
+
+    const result = Array.from(comboMap.values())
+      .filter((c) => c.eventCount >= minEvents)
+      .map((c) => ({
+        playerIds: c.playerIds,
+        eventsTogether: c.eventCount,
+        pts: c.pts,
+        ptsPer50: c.eventCount > 0 ? (c.pts * 50) / c.eventCount : 0,
+      }))
+      .sort((a, b) => b.pts - a.pts)
+      .slice(0, 15);
+
+    res.json(result);
   } catch (err) { next(err); }
 });
 
