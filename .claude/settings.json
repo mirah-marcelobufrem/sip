@@ -5,7 +5,9 @@
       "Bash(chmod +x /Users/marcelobufrem/work/repositories/sip/start.sh /Users/marcelobufrem/work/repositories/sip/stop.sh)",
       "Bash(grep -E \"package\\\\.json$\")",
       "Bash(ipconfig getifaddr *)",
-      "Bash(docker volume *)"
+      "Bash(docker volume *)",
+      "Bash(rtk ls *)",
+      "Bash(rtk read *)"
     ],
     "additionalDirectories": [
       "/Users/marcelobufrem"

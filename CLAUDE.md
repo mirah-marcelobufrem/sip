@@ -40,16 +40,23 @@ docker compose up
 # Backend dev
 cd backend && npm run dev         # http://localhost:3001
 cd backend && npm run typecheck
+cd backend && npm run lint
 cd backend && npm run test:unit
 cd backend && npm run test:integration
 cd backend && npm run db:migrate
 cd backend && npm run db:generate  # after schema changes
 cd backend && npm run db:studio    # Drizzle Studio GUI on http://localhost:4983
 
-# Frontend dev
+# Run a single backend test (Jest)
+cd backend && npx jest tests/unit/auth/registerUser.test.ts
+cd backend && npx jest tests/unit/games/  # all tests in a directory
+
+# Frontend dev (test runner is Vitest, not Jest)
 cd frontend && npm run dev         # http://localhost:5173
 cd frontend && npm run typecheck
-cd frontend && npm test
+cd frontend && npm run lint
+cd frontend && npm test            # vitest run (all)
+cd frontend && npx vitest run src/features/auth/LoginPage.test.tsx
 cd frontend && npx playwright test  # E2E (requires running stack)
 
 # nginx config
@@ -62,11 +69,42 @@ bash nginx/generate-nginx-conf.sh  # DOMAIN=example.com bash nginx/generate-ngin
 domain/ → application/ → infrastructure/ → presentation/
 ```
 
+### Path Aliases
+
+| Alias | Resolves to | Where |
+| --- | --- | --- |
+| `@domain/*` | `backend/src/domain/*` | backend tsconfig + jest |
+| `@application/*` | `backend/src/application/*` | backend tsconfig + jest |
+| `@infrastructure/*` | `backend/src/infrastructure/*` | backend tsconfig + jest |
+| `@presentation/*` | `backend/src/presentation/*` | backend tsconfig + jest |
+| `@/*` | `frontend/src/*` | frontend vite + vitest |
+
+### Required Environment Variables
+
+The root `.env` (gitignored, copy from `.env.example`) must include:
+
+```env
+DATABASE_URL=postgresql://sip:sip@localhost:5432/sip  # used by backend connection.ts
+JWT_SECRET=...
+JWT_REFRESH_SECRET=...
+ANTHROPIC_API_KEY=sk-ant-...  # AI routes no-op without it
+
+# Optional — push notifications disabled if absent
+VAPID_PUBLIC_KEY=...
+VAPID_PRIVATE_KEY=...
+VAPID_SUBJECT=mailto:admin@example.com
+
+# Optional — frontend uses /api/v1 by default (nginx proxy in prod)
+VITE_API_URL=http://localhost:3001/api/v1
+```
+
 ### backend/src/domain/ — zero external imports
 
 - `entities/` — plain TypeScript interfaces (User, Player, Game, StatEvent…)
 - `repositories/` — repository interfaces (ports)
+- `value-objects/` — branded/validated types
 - `stat-calculators.ts` — all derived stat logic (eFG%, TS%, +/-, shot zone, run detection)
+- `tournament-bracket.ts` — bracket seeding and advancement logic
 
 ### backend/src/application/ — imports domain only
 
