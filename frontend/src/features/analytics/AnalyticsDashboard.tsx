@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useParams } from 'react-router-dom';
+import { useParams, Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '../../lib/api';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
@@ -150,6 +150,15 @@ export default function AnalyticsDashboard() {
       {/* Season tab */}
       {activeTab === 'season' && (
         <>
+          <div className="flex justify-end">
+            <Link
+              to={`/teams/${teamId}/season-box-score`}
+              className="text-sm text-brand-600 dark:text-brand-400 hover:underline font-medium"
+            >
+              Season Box Score →
+            </Link>
+          </div>
+
           {efficiency && efficiency.gamesPlayed > 0 && (
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
               {[

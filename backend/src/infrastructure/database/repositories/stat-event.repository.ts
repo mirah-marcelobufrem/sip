@@ -1,4 +1,4 @@
-import { and, eq, isNull, gte, lte, inArray } from 'drizzle-orm';
+import { and, asc, eq, isNull, inArray, sql } from 'drizzle-orm';
 import type { Db } from '../connection.js';
 import { statEvents } from '../schema/stat-events.schema.js';
 import type { IStatEventRepository } from '../../../domain/repositories/game.repository.js';
@@ -8,7 +8,11 @@ export class DrizzleStatEventRepository implements IStatEventRepository {
   constructor(private db: Db) {}
 
   async findById(id: string): Promise<StatEvent | null> {
-    const rows = await this.db.select().from(statEvents).where(eq(statEvents.id, id)).limit(1);
+    const rows = await this.db
+      .select()
+      .from(statEvents)
+      .where(and(eq(statEvents.id, id), isNull(statEvents.deletedAt)))
+      .limit(1);
     return rows[0] ? this.toEntity(rows[0]) : null;
   }
 
@@ -18,6 +22,21 @@ export class DrizzleStatEventRepository implements IStatEventRepository {
       .from(statEvents)
       .where(and(eq(statEvents.gameId, gameId), isNull(statEvents.deletedAt)))
       .orderBy(statEvents.period, statEvents.clockTimeSeconds, statEvents.createdAt);
+    return rows.map(this.toEntity);
+  }
+
+  async findByGameAndPeriod(gameId: string, period: number): Promise<StatEvent[]> {
+    const rows = await this.db
+      .select()
+      .from(statEvents)
+      .where(
+        and(
+          eq(statEvents.gameId, gameId),
+          eq(statEvents.period, period),
+          isNull(statEvents.deletedAt),
+        ),
+      )
+      .orderBy(sql`${statEvents.seq} ASC NULLS LAST`, asc(statEvents.createdAt));
     return rows.map(this.toEntity);
   }
 
@@ -121,6 +140,7 @@ export class DrizzleStatEventRepository implements IStatEventRepository {
       xCourt: row.xCourt,
       yCourt: row.yCourt,
       lineupSnapshotId: row.lineupSnapshotId,
+      seq: row.seq,
       createdAt: row.createdAt,
     };
   }

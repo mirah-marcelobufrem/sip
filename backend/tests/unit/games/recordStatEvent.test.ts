@@ -12,6 +12,7 @@ function makeStatRepo(): IStatEventRepository {
   return {
     findById: jest.fn().mockResolvedValue(null),
     findByGame: jest.fn().mockResolvedValue(stored),
+    findByGameAndPeriod: jest.fn().mockResolvedValue(stored),
     findByPlayer: jest.fn().mockResolvedValue(stored),
     findByGameAndPlayer: jest.fn().mockResolvedValue(stored),
     findByGameAndTeam: jest.fn().mockResolvedValue(stored),

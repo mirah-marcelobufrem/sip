@@ -17,6 +17,7 @@ export const RecordStatEventInput = z.object({
   value: z.number().int().default(1),
   xCourt: z.number().min(0).max(1).optional(),
   yCourt: z.number().min(0).max(1).optional(),
+  seq: z.number().optional(),
 });
 
 export type RecordStatEventInput = z.infer<typeof RecordStatEventInput>;
@@ -44,6 +45,7 @@ export async function recordStatEvent(
     xCourt: input.xCourt ?? null,
     yCourt: input.yCourt ?? null,
     lineupSnapshotId: lineup?.id ?? null,
+    seq: input.seq ?? null,
   });
 
   return event;
