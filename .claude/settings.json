@@ -10,7 +10,9 @@
       "Bash(rtk read *)",
       "Bash(rtk grep *)",
       "Bash(rm -rf /Users/marcelobufrem/work/repositories/sip/.claude/agents && rtk ls /Users/marcelobufrem/work/repositories/sip/.claude/)",
-      "Bash(rtk wc *)"
+      "Bash(rtk wc *)",
+      "Bash(grep -E \"\\\\.\\(ts|js\\)$\")",
+      "Bash(rtk find *)"
     ],
     "additionalDirectories": [
       "/Users/marcelobufrem",
