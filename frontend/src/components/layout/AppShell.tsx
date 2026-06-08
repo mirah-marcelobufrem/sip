@@ -9,6 +9,9 @@ const navItems = [
   { to: '/settings', label: 'Settings', icon: '⚙️' },
 ];
 
+// Season Stats nav link is context-dependent (requires teamId).
+// It is surfaced via the AnalyticsDashboard "Season Box Score →" link instead.
+
 function HamburgerIcon() {
   return (
     <svg width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden="true">

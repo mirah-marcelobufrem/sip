@@ -11,8 +11,10 @@ import PlayerCardPage from './features/players/PlayerCardPage';
 import GamesPage from './features/games/GamesPage';
 import LiveRecordingPage from './features/live/LiveRecordingPage';
 import BoxScorePage from './features/games/BoxScorePage';
+import GameLogPage from './features/games/GameLogPage';
 import GameShotMapPage from './features/games/GameShotMapPage';
 import AnalyticsDashboard from './features/analytics/AnalyticsDashboard';
+import SeasonBoxScorePage from './features/analytics/SeasonBoxScorePage';
 import ScoutingPage from './features/scouting/ScoutingPage';
 import TournamentsPage from './features/tournaments/TournamentsPage';
 import TournamentDetailPage from './features/tournaments/TournamentDetailPage';
@@ -50,8 +52,10 @@ export default function App() {
           <Route path="teams/:teamId/games" element={<GamesPage />} />
           <Route path="games/:gameId/live" element={<LiveRecordingPage />} />
           <Route path="games/:gameId/box-score" element={<BoxScorePage />} />
+          <Route path="games/:gameId/log" element={<GameLogPage />} />
           <Route path="games/:gameId/shots" element={<GameShotMapPage />} />
           <Route path="teams/:teamId/analytics" element={<AnalyticsDashboard />} />
+          <Route path="teams/:teamId/season-box-score" element={<SeasonBoxScorePage />} />
           <Route path="scouting" element={<ScoutingPage />} />
           <Route path="tournaments" element={<TournamentsPage />} />
           <Route path="tournaments/:id" element={<TournamentDetailPage />} />

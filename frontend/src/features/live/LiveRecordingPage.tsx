@@ -202,11 +202,20 @@ export default function LiveRecordingPage() {
   });
 
   const advancePeriodMutation = useMutation({
-    mutationFn: () =>
-      api.patch(`/games/${gameId}`, { currentPeriod: period + 1 }),
+    mutationFn: async () => {
+      // Post PERIOD_END event before advancing the period counter
+      await api.post(`/games/${gameId}/events`, {
+        period,
+        statType: 'PERIOD_END',
+        playerId: null,
+        teamId: null,
+      });
+      await api.patch(`/games/${gameId}`, { currentPeriod: period + 1 });
+    },
     onSuccess: () => {
       setShowPeriodConfirm(false);
       queryClient.invalidateQueries({ queryKey: ['game', gameId] });
+      queryClient.invalidateQueries({ queryKey: ['game-log', gameId] });
     },
   });
 
@@ -530,8 +539,23 @@ export default function LiveRecordingPage() {
       {showPeriodConfirm && (
         <div className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4">
           <div className="bg-gray-900 rounded-xl p-5 w-full max-w-xs text-center">
-            <p className="text-white font-semibold mb-1">Advance to {game?.format === 'halves' ? `H${period + 1}` : `Q${period + 1}`}?</p>
-            <p className="text-gray-400 text-sm mb-4">Team fouls will reset for the new period.</p>
+            <p className="text-white font-semibold text-lg mb-1">
+              End of {periodLabel}
+            </p>
+            <div className="flex items-center justify-center gap-4 my-3">
+              <div className="text-center">
+                <div className="text-3xl font-bold tabular-nums text-white">{homeScore}</div>
+                <div className="text-xs text-gray-500 mt-0.5">HOME</div>
+              </div>
+              <div className="text-gray-600 font-bold text-xl">|</div>
+              <div className="text-center">
+                <div className="text-3xl font-bold tabular-nums text-white">{awayScore}</div>
+                <div className="text-xs text-gray-500 mt-0.5">AWAY</div>
+              </div>
+            </div>
+            <p className="text-gray-400 text-sm mb-4">
+              Confirm to advance to {game?.format === 'halves' ? `H${period + 1}` : `Q${period + 1}`}.
+            </p>
             <div className="flex gap-2">
               <button
                 onClick={() => setShowPeriodConfirm(false)}
@@ -544,7 +568,7 @@ export default function LiveRecordingPage() {
                 disabled={advancePeriodMutation.isPending}
                 className="flex-1 py-2 bg-brand-600 hover:bg-brand-700 disabled:opacity-40 rounded-lg text-sm font-semibold text-white"
               >
-                {advancePeriodMutation.isPending ? '…' : 'Advance'}
+                {advancePeriodMutation.isPending ? '…' : 'Confirm & Advance'}
               </button>
             </div>
           </div>
