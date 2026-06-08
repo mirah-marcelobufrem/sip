@@ -1,6 +1,6 @@
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
-  ReferenceLine, ResponsiveContainer, TooltipProps,
+  ReferenceLine, ReferenceArea, ResponsiveContainer, TooltipProps,
 } from 'recharts';
 
 interface FlowPoint {
@@ -11,11 +11,13 @@ interface FlowPoint {
   differential: number;
 }
 
+// Updated to match actual API shape
 interface ScoringRun {
   teamId: string;
   points: number;
-  startPeriod: number;
-  endPeriod: number;
+  period: number;
+  startClock: number | null;
+  endClock: number | null;
 }
 
 interface GameFlowChartProps {
@@ -60,6 +62,27 @@ export function GameFlowChart({ flowPoints, scoringRuns = [], homeLabel = 'Home'
           <YAxis tick={{ fontSize: 10 }} />
           <Tooltip content={<CustomTooltip />} />
           <ReferenceLine y={0} stroke="#9ca3af" strokeWidth={1.5} />
+          {/* Scoring run shaded bands */}
+          {scoringRuns.map((run, i) => {
+            const startIdx = data.findIndex((p) => p.period === run.period);
+            // findLastIndex is ES2023; use a manual reverse search for ES2022 compat
+            let endIdx = data.length - 1;
+            if (run.endClock !== null) {
+              for (let j = data.length - 1; j >= 0; j--) {
+                if (data[j].period === run.period) { endIdx = j; break; }
+              }
+            }
+            if (startIdx < 0) return null;
+            return (
+              <ReferenceArea
+                key={i}
+                x1={startIdx}
+                x2={endIdx}
+                fill="#f59e0b"
+                fillOpacity={0.08}
+              />
+            );
+          })}
           <Line
             type="monotone"
             dataKey="differential"
@@ -84,7 +107,7 @@ export function GameFlowChart({ flowPoints, scoringRuns = [], homeLabel = 'Home'
         <div className="mt-3 flex flex-wrap gap-2">
           {scoringRuns.slice(0, 4).map((run, i) => (
             <span key={i} className="text-xs bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-400 border border-amber-200 dark:border-amber-800 px-2 py-0.5 rounded-full">
-              {run.points}-0 run · Q{run.startPeriod}
+              {run.points}-0 run · Q{run.period}
             </span>
           ))}
         </div>

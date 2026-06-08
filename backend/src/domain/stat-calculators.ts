@@ -173,6 +173,30 @@ export function computeTeamEfficiency(
   return { ortg, drtg, nrtg, pace, possessions };
 }
 
+export function computePer36(box: PlayerBoxScore): Partial<PlayerBoxScore> | null {
+  if (box.minSeconds < 30) return null; // insufficient sample
+  const factor = 2160 / box.minSeconds; // 36 min = 2160 seconds
+  return {
+    pts: box.pts * factor,
+    fgm: box.fgm * factor,
+    fga: box.fga * factor,
+    twopm: box.twopm * factor,
+    twopa: box.twopa * factor,
+    threepm: box.threepm * factor,
+    threepa: box.threepa * factor,
+    ftm: box.ftm * factor,
+    fta: box.fta * factor,
+    oreb: box.oreb * factor,
+    dreb: box.dreb * factor,
+    reb: box.reb * factor,
+    ast: box.ast * factor,
+    to: box.to * factor,
+    stl: box.stl * factor,
+    blk: box.blk * factor,
+    pf: box.pf * factor,
+  };
+}
+
 export function buildGameFlowPoints(
   events: StatEvent[],
   homeTeamId: string,
