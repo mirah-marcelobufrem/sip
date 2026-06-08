@@ -11,6 +11,7 @@ export interface IGameRepository {
 export interface IStatEventRepository {
   findById(id: string): Promise<StatEvent | null>;
   findByGame(gameId: string): Promise<StatEvent[]>;
+  findByGameAndPeriod(gameId: string, period: number): Promise<StatEvent[]>;
   findByGameAndPlayer(gameId: string, playerId: string): Promise<StatEvent[]>;
   findByGameAndTeam(gameId: string, teamId: string): Promise<StatEvent[]>;
   findByPlayer(playerId: string): Promise<StatEvent[]>;

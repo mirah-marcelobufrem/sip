@@ -43,6 +43,7 @@ export async function recordSubstitution(
     xCourt: null,
     yCourt: null,
     lineupSnapshotId: snapshot.id,
+    seq: null,
   });
 
   await statEventRepo.create({
@@ -56,6 +57,7 @@ export async function recordSubstitution(
     xCourt: null,
     yCourt: null,
     lineupSnapshotId: snapshot.id,
+    seq: null,
   });
 
   return snapshot;

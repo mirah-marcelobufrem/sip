@@ -14,6 +14,7 @@ import exportRoutes from './presentation/routes/export.routes.js';
 import settingsRoutes from './presentation/routes/settings.routes.js';
 import notificationsRoutes from './presentation/routes/notifications.routes.js';
 import accountRoutes from './presentation/routes/account.routes.js';
+import gameTemplatesRoutes from './presentation/routes/game-templates.routes.js';
 import { errorMiddleware } from './presentation/middleware/error.middleware.js';
 
 const app = express();
@@ -44,6 +45,7 @@ app.use('/api/v1/export', exportRoutes);
 app.use('/api/v1/settings', settingsRoutes);
 app.use('/api/v1/notifications', notificationsRoutes);
 app.use('/api/v1/account', accountRoutes);
+app.use('/api/v1/game-templates', gameTemplatesRoutes);
 
 app.use(errorMiddleware);
 
