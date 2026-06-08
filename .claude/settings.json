@@ -9,7 +9,8 @@
       "Bash(rtk ls *)",
       "Bash(rtk read *)",
       "Bash(rtk grep *)",
-      "Bash(rm -rf /Users/marcelobufrem/work/repositories/sip/.claude/agents && rtk ls /Users/marcelobufrem/work/repositories/sip/.claude/)"
+      "Bash(rm -rf /Users/marcelobufrem/work/repositories/sip/.claude/agents && rtk ls /Users/marcelobufrem/work/repositories/sip/.claude/)",
+      "Bash(rtk wc *)"
     ],
     "additionalDirectories": [
       "/Users/marcelobufrem",
