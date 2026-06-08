@@ -319,6 +319,20 @@ bash nginx/generate-nginx-conf.sh                        # localhost
 DOMAIN=yourdomain.com bash nginx/generate-nginx-conf.sh # production
 ```
 
+## Subagents
+
+This project uses the **global** Claude Code subagents located at `/Users/marcelobufrem/.claude/agents/`. There are no project-level agents — do not create a `.claude/agents/` directory here.
+
+Relevant agents for this project and their typical use:
+
+| Category | Folder | Use for |
+| --- | --- | --- |
+| `engineering/` | `engineering-frontend-developer`, `engineering-backend-architect`, `engineering-senior-developer`, `engineering-software-architect`, `engineering-devops-automator` | Feature implementation, architecture decisions, infra changes |
+| `testing/` | `testing-api-tester`, `testing-reality-checker` | API validation, production-readiness checks |
+| `design/` | `design-ui-designer` | UI/UX improvements |
+
+When orchestrating complex tasks, follow the standard chains from the global CLAUDE.md (PM → Backend → Frontend → QA → DevOps, etc.) using these global agents.
+
 ## GitFlow
 
 ```text

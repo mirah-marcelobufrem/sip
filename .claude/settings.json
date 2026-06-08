@@ -7,10 +7,13 @@
       "Bash(ipconfig getifaddr *)",
       "Bash(docker volume *)",
       "Bash(rtk ls *)",
-      "Bash(rtk read *)"
+      "Bash(rtk read *)",
+      "Bash(rtk grep *)",
+      "Bash(rm -rf /Users/marcelobufrem/work/repositories/sip/.claude/agents && rtk ls /Users/marcelobufrem/work/repositories/sip/.claude/)"
     ],
     "additionalDirectories": [
-      "/Users/marcelobufrem"
+      "/Users/marcelobufrem",
+      "/Users/marcelobufrem/work/repositories/sip/.claude/agents"
     ]
   }
 }
