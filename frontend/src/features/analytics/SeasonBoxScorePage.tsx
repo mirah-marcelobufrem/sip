@@ -3,6 +3,12 @@ import { useParams, Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '../../lib/api';
 
+function buildQuery(params: Record<string, string | undefined>): string {
+  const p = Object.entries(params).filter(([, v]) => v != null) as [string, string][];
+  if (p.length === 0) return '';
+  return '?' + new URLSearchParams(p).toString();
+}
+
 interface PlayerSeasonRow {
   player: {
     id: string;
@@ -85,10 +91,20 @@ export default function SeasonBoxScorePage() {
   const [viewMode, setViewMode] = useState<ViewMode>('avg');
   const [sortKey, setSortKey] = useState<SortKey>('pts');
   const [sortAsc, setSortAsc] = useState(false);
+  const [per36Mode, setPer36Mode] = useState(false);
+  const [dateFrom, setDateFrom] = useState('');
+  const [dateTo, setDateTo] = useState('');
 
   const { data: rows = [], isLoading } = useQuery<PlayerSeasonRow[]>({
-    queryKey: ['player-season-stats', teamId],
-    queryFn: () => api.get(`/teams/${teamId}/players/season-stats`),
+    queryKey: ['player-season-stats', teamId, per36Mode, dateFrom, dateTo],
+    queryFn: () =>
+      api.get(
+        `/teams/${teamId}/players/season-stats${buildQuery({
+          dateFrom: dateFrom || undefined,
+          dateTo: dateTo || undefined,
+          per36: per36Mode ? 'true' : undefined,
+        })}`
+      ),
   });
 
   const dataRows = useMemo((): DataRow[] => {
@@ -212,24 +228,59 @@ export default function SeasonBoxScorePage() {
         <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">Season Box Score</h1>
       </div>
 
-      {/* View mode toggle */}
-      <div className="flex gap-1 bg-gray-100 dark:bg-gray-800 rounded-lg p-1 w-fit mb-6">
-        {([
-          { id: 'avg' as const, label: 'Per Game Avg' },
-          { id: 'totals' as const, label: 'Season Totals' },
-        ]).map((opt) => (
-          <button
-            key={opt.id}
-            onClick={() => setViewMode(opt.id)}
-            className={`px-4 py-1.5 rounded-md text-sm font-medium transition-colors ${
-              viewMode === opt.id
-                ? 'bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 shadow-sm'
-                : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'
-            }`}
-          >
-            {opt.label}
-          </button>
-        ))}
+      {/* Filter bar */}
+      <div className="flex flex-wrap items-center gap-4 mb-6">
+        {/* View mode toggle */}
+        <div className="flex gap-1 bg-gray-100 dark:bg-gray-800 rounded-lg p-1">
+          {([
+            { id: 'avg' as const, label: 'Per Game Avg' },
+            { id: 'totals' as const, label: 'Season Totals' },
+          ]).map((opt) => (
+            <button
+              key={opt.id}
+              onClick={() => setViewMode(opt.id)}
+              className={`px-4 py-1.5 rounded-md text-sm font-medium transition-colors ${
+                viewMode === opt.id
+                  ? 'bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 shadow-sm'
+                  : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'
+              }`}
+            >
+              {opt.label}
+            </button>
+          ))}
+        </div>
+
+        {/* Per 36 toggle */}
+        <button
+          onClick={() => setPer36Mode((prev) => !prev)}
+          className={`px-3 py-1.5 rounded-lg text-sm font-medium border transition-colors ${
+            per36Mode
+              ? 'bg-brand-600 text-white border-brand-600'
+              : 'bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300 border-gray-300 dark:border-gray-700 hover:border-brand-400'
+          }`}
+        >
+          Per 36
+        </button>
+
+        {/* Date range filters */}
+        <div className="flex items-center gap-2">
+          <label className="text-xs text-gray-500">From:</label>
+          <input
+            type="date"
+            value={dateFrom}
+            onChange={(e) => setDateFrom(e.target.value)}
+            className="px-2 py-1.5 border border-gray-300 dark:border-gray-700 rounded-lg text-sm bg-white dark:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-brand-500"
+          />
+        </div>
+        <div className="flex items-center gap-2">
+          <label className="text-xs text-gray-500">To:</label>
+          <input
+            type="date"
+            value={dateTo}
+            onChange={(e) => setDateTo(e.target.value)}
+            className="px-2 py-1.5 border border-gray-300 dark:border-gray-700 rounded-lg text-sm bg-white dark:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-brand-500"
+          />
+        </div>
       </div>
 
       {isLoading && (
@@ -252,7 +303,7 @@ export default function SeasonBoxScorePage() {
                 </th>
                 <ColHeader colKey="gamesPlayed" label="GP" />
                 <ColHeader colKey="minutes" label="MIN" />
-                <ColHeader colKey="pts" label="PTS" />
+                <ColHeader colKey="pts" label={per36Mode ? 'PTS (per 36)' : 'PTS'} />
                 <th className="px-3 py-3 text-xs font-medium text-gray-500 uppercase whitespace-nowrap">
                   FGM/A
                 </th>
@@ -271,14 +322,14 @@ export default function SeasonBoxScorePage() {
                 <th className="px-3 py-3 text-xs font-medium text-gray-500 uppercase">
                   FT%
                 </th>
-                <ColHeader colKey="oreb" label="OREB" />
-                <ColHeader colKey="dreb" label="DREB" />
-                <ColHeader colKey="reb" label="REB" />
-                <ColHeader colKey="ast" label="AST" />
-                <ColHeader colKey="to" label="TO" />
-                <ColHeader colKey="stl" label="STL" />
-                <ColHeader colKey="blk" label="BLK" />
-                <ColHeader colKey="pf" label="PF" />
+                <ColHeader colKey="oreb" label={per36Mode ? 'OREB (per 36)' : 'OREB'} />
+                <ColHeader colKey="dreb" label={per36Mode ? 'DREB (per 36)' : 'DREB'} />
+                <ColHeader colKey="reb" label={per36Mode ? 'REB (per 36)' : 'REB'} />
+                <ColHeader colKey="ast" label={per36Mode ? 'AST (per 36)' : 'AST'} />
+                <ColHeader colKey="to" label={per36Mode ? 'TO (per 36)' : 'TO'} />
+                <ColHeader colKey="stl" label={per36Mode ? 'STL (per 36)' : 'STL'} />
+                <ColHeader colKey="blk" label={per36Mode ? 'BLK (per 36)' : 'BLK'} />
+                <ColHeader colKey="pf" label={per36Mode ? 'PF (per 36)' : 'PF'} />
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100 dark:divide-gray-800">

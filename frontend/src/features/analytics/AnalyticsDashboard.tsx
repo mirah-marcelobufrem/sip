@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '../../lib/api';
@@ -47,13 +47,45 @@ interface LineupStat {
 
 interface FlowData {
   flowPoints: { period: number; clockTimeSeconds: number | null; homeScore: number; awayScore: number; differential: number }[];
-  scoringRuns: { teamId: string; points: number; startPeriod: number; endPeriod: number }[];
+  scoringRuns: { teamId: string; points: number; period: number; startClock: number | null; endClock: number | null }[];
+}
+
+interface TrendData {
+  statKey: string;
+  games: { gameId: string; gameDate: string; opponentLabel: string; value: number }[];
+}
+
+interface MatchupData {
+  record: { wins: number; losses: number };
+  avgScoreDiff: number;
+  avgPts: number;
+  avgOppPts: number;
+  games: { gameId: string; date: string; opponentLabel: string; teamScore: number; oppScore: number; result: 'W' | 'L' }[];
+}
+
+interface ComboStat {
+  playerIds: string[];
+  eventsTogether: number;
+  pts: number;
+  ptsPer50: number;
 }
 
 export default function AnalyticsDashboard() {
   const { teamId } = useParams<{ teamId: string }>();
   const [selectedGameId, setSelectedGameId] = useState<string>('');
   const [activeTab, setActiveTab] = useState<'season' | 'lineup' | 'flow'>('season');
+  const [trendStat, setTrendStat] = useState<string>('pts');
+  const [matchupOpponent, setMatchupOpponent] = useState('');
+  const [debouncedOpponent, setDebouncedOpponent] = useState('');
+  const [comboSize, setComboSize] = useState<'2' | '3'>('2');
+
+  // Debounce opponent filter by 300ms
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedOpponent(matchupOpponent);
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [matchupOpponent]);
 
   const { data: season } = useQuery<SeasonStats>({
     queryKey: ['season-stats', teamId],
@@ -75,9 +107,30 @@ export default function AnalyticsDashboard() {
     queryFn: () => api.get(`/teams/${teamId}/games`),
   });
 
+  const { data: trendData } = useQuery<TrendData>({
+    queryKey: ['trend-stats', teamId, trendStat],
+    queryFn: () => api.get(`/teams/${teamId}/trend-stats?stat=${trendStat}`),
+    enabled: activeTab === 'season',
+  });
+
+  const { data: matchups } = useQuery<MatchupData>({
+    queryKey: ['matchups', teamId, debouncedOpponent],
+    queryFn: () =>
+      api.get(
+        `/teams/${teamId}/matchups${debouncedOpponent ? `?opponentName=${encodeURIComponent(debouncedOpponent)}` : ''}`
+      ),
+    enabled: activeTab === 'season',
+  });
+
   const { data: lineupStats = [] } = useQuery<LineupStat[]>({
     queryKey: ['lineup-stats', teamId],
     queryFn: () => api.get(`/teams/${teamId}/lineup-stats`),
+    enabled: activeTab === 'lineup',
+  });
+
+  const { data: comboStats = [] } = useQuery<ComboStat[]>({
+    queryKey: ['combo-stats', teamId, comboSize],
+    queryFn: () => api.get(`/teams/${teamId}/combo-stats?size=${comboSize}`),
     enabled: activeTab === 'lineup',
   });
 
@@ -89,12 +142,13 @@ export default function AnalyticsDashboard() {
 
   const completedGames = games.filter((g) => g.status === 'completed');
 
-  const trendData = completedGames
-    .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
-    .map((g, i) => ({
-      game: `G${i + 1}`,
-      pts: g.homeTeamId === teamId ? g.finalScoreHome : g.finalScoreAway,
-    }));
+  const trendChartData =
+    trendData && trendData.games.length > 0
+      ? trendData.games.map((g) => ({
+          game: g.opponentLabel || new Date(g.gameDate).toLocaleDateString(),
+          value: g.value,
+        }))
+      : null;
 
   const leaders = [...playerStats]
     .filter((r) => r.box !== null)
@@ -109,6 +163,15 @@ export default function AnalyticsDashboard() {
     { id: 'season' as const, label: 'Season' },
     { id: 'lineup' as const, label: 'Lineups' },
     { id: 'flow' as const, label: 'Game Flow' },
+  ];
+
+  const trendStatOptions = [
+    { value: 'pts', label: 'PTS' },
+    { value: 'reb', label: 'REB' },
+    { value: 'ast', label: 'AST' },
+    { value: 'stl', label: 'STL' },
+    { value: 'blk', label: 'BLK' },
+    { value: 'to', label: 'TO' },
   ];
 
   return (
@@ -175,26 +238,41 @@ export default function AnalyticsDashboard() {
             </div>
           )}
 
-          {trendData.length > 0 ? (
-            <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 p-4 shadow-card">
-              <h2 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-4">Points Per Game — Season Trend</h2>
+          {/* Trend chart with stat selector */}
+          <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 p-4 shadow-card">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-sm font-semibold text-gray-700 dark:text-gray-300">Season Trend</h2>
+              <div className="flex items-center gap-2">
+                <label className="text-xs text-gray-500">Stat:</label>
+                <select
+                  value={trendStat}
+                  onChange={(e) => setTrendStat(e.target.value)}
+                  className="px-2 py-1 border border-gray-300 dark:border-gray-700 rounded text-xs bg-white dark:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-brand-500"
+                >
+                  {trendStatOptions.map((opt) => (
+                    <option key={opt.value} value={opt.value}>{opt.label}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+            {trendChartData ? (
               <div className="h-48">
                 <ResponsiveContainer width="100%" height="100%">
-                  <LineChart data={trendData}>
+                  <LineChart data={trendChartData}>
                     <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
                     <XAxis dataKey="game" tick={{ fontSize: 11 }} />
                     <YAxis tick={{ fontSize: 11 }} domain={['auto', 'auto']} />
                     <Tooltip />
-                    <Line type="monotone" dataKey="pts" stroke="#1a56db" strokeWidth={2} dot={{ r: 3 }} />
+                    <Line type="monotone" dataKey="value" stroke="#1a56db" strokeWidth={2} dot={{ r: 3 }} />
                   </LineChart>
                 </ResponsiveContainer>
               </div>
-            </div>
-          ) : (
-            <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 p-4 shadow-card text-center py-8">
-              <p className="text-gray-400 text-sm">Complete some games to see trend data</p>
-            </div>
-          )}
+            ) : (
+              <div className="h-48 flex items-center justify-center">
+                <p className="text-gray-400 text-sm">Complete some games to see trend data</p>
+              </div>
+            )}
+          </div>
 
           {leaders.length > 0 && (
             <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 shadow-card overflow-hidden">
@@ -238,51 +316,176 @@ export default function AnalyticsDashboard() {
               </table>
             </div>
           )}
+
+          {/* Matchup History section */}
+          <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 shadow-card">
+            <details>
+              <summary className="px-4 py-3 cursor-pointer font-semibold text-sm text-gray-700 dark:text-gray-300 select-none">
+                Matchup History
+              </summary>
+              <div className="px-4 pb-4">
+                {/* Opponent name filter */}
+                <input
+                  type="text"
+                  placeholder="Filter by opponent name..."
+                  value={matchupOpponent}
+                  onChange={(e) => setMatchupOpponent(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg text-sm bg-white dark:bg-gray-800 mb-3 focus:outline-none focus:ring-2 focus:ring-brand-500"
+                />
+                {/* Summary row */}
+                {matchups && (
+                  <div className="flex gap-6 mb-3 text-sm">
+                    <span>
+                      <span className="font-bold text-green-600">{matchups.record.wins}W</span>
+                      {' – '}
+                      <span className="font-bold text-red-500">{matchups.record.losses}L</span>
+                    </span>
+                    <span className="text-gray-500">
+                      Avg diff:{' '}
+                      <span className={matchups.avgScoreDiff >= 0 ? 'text-green-600 font-medium' : 'text-red-500 font-medium'}>
+                        {matchups.avgScoreDiff >= 0 ? '+' : ''}{matchups.avgScoreDiff.toFixed(1)}
+                      </span>
+                    </span>
+                    <span className="text-gray-500">
+                      Avg:{' '}
+                      <span className="text-gray-700 dark:text-gray-300 font-medium">
+                        {matchups.avgPts.toFixed(1)} – {matchups.avgOppPts.toFixed(1)}
+                      </span>
+                    </span>
+                  </div>
+                )}
+                {/* Games list */}
+                {matchups?.games.map((g) => (
+                  <div
+                    key={g.gameId}
+                    className="flex items-center justify-between py-1.5 border-b border-gray-100 dark:border-gray-800 last:border-0 text-sm"
+                  >
+                    <span className="text-gray-500 text-xs">{new Date(g.date).toLocaleDateString()}</span>
+                    <span className="text-gray-700 dark:text-gray-300">{g.opponentLabel || '—'}</span>
+                    <span className="tabular-nums font-medium">{g.teamScore} – {g.oppScore}</span>
+                    <span
+                      className={`text-xs font-bold px-2 py-0.5 rounded-full ${
+                        g.result === 'W'
+                          ? 'bg-green-50 dark:bg-green-900/20 text-green-600'
+                          : 'bg-red-50 dark:bg-red-900/20 text-red-500'
+                      }`}
+                    >
+                      {g.result}
+                    </span>
+                  </div>
+                ))}
+                {matchups?.games.length === 0 && (
+                  <p className="text-gray-400 text-sm py-4 text-center">No games found.</p>
+                )}
+              </div>
+            </details>
+          </div>
         </>
       )}
 
       {/* Lineup analysis tab */}
       {activeTab === 'lineup' && (
-        <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 shadow-card overflow-hidden">
-          <div className="px-4 py-3 border-b border-gray-100 dark:border-gray-800">
-            <h2 className="text-sm font-semibold text-gray-700 dark:text-gray-300">Top Lineups</h2>
-            <p className="text-xs text-gray-400 mt-0.5">5-player combinations with at least 5 tracked events</p>
-          </div>
-          {lineupStats.length === 0 ? (
-            <p className="text-center text-gray-400 py-10 text-sm">No lineup data yet. Record substitutions during live games to track lineup splits.</p>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead className="bg-gray-50 dark:bg-gray-800">
-                  <tr>
-                    <th className="text-left px-4 py-2 text-xs font-medium text-gray-500 uppercase">Lineup</th>
-                    <th className="px-3 py-2 text-xs font-medium text-gray-500 uppercase">PTS</th>
-                    <th className="px-3 py-2 text-xs font-medium text-gray-500 uppercase">+/-</th>
-                    <th className="px-3 py-2 text-xs font-medium text-gray-500 uppercase">ORTG</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
-                  {lineupStats.map((ls, i) => (
-                    <tr key={i} className="hover:bg-gray-50 dark:hover:bg-gray-800/50">
-                      <td className="px-4 py-2.5 text-gray-700 dark:text-gray-300 text-xs">
-                        {ls.playerIds
-                          .map((id) => playerNameMap.get(id) ?? id.slice(0, 8))
-                          .join(' · ')}
-                      </td>
-                      <td className="px-3 py-2.5 text-center font-semibold text-gray-900 dark:text-gray-100">{ls.pts}</td>
-                      <td className={`px-3 py-2.5 text-center font-medium ${ls.plusMinus > 0 ? 'text-green-600' : ls.plusMinus < 0 ? 'text-red-500' : 'text-gray-400'}`}>
-                        {ls.plusMinus > 0 ? `+${ls.plusMinus}` : ls.plusMinus}
-                      </td>
-                      <td className="px-3 py-2.5 text-center text-gray-500">
-                        {ls.ortg !== null ? ls.ortg.toFixed(1) : '—'}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+        <>
+          <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 shadow-card overflow-hidden">
+            <div className="px-4 py-3 border-b border-gray-100 dark:border-gray-800 flex items-center justify-between">
+              <div>
+                <h2 className="text-sm font-semibold text-gray-700 dark:text-gray-300">Top Lineups</h2>
+                <p className="text-xs text-gray-400 mt-0.5">5-player combinations with at least 5 tracked events</p>
+              </div>
+              <Link to={`/teams/${teamId}/analytics/on-off`} className="text-sm text-brand-600 hover:underline">
+                On/Off Analysis →
+              </Link>
             </div>
-          )}
-        </div>
+            {lineupStats.length === 0 ? (
+              <p className="text-center text-gray-400 py-10 text-sm">No lineup data yet. Record substitutions during live games to track lineup splits.</p>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead className="bg-gray-50 dark:bg-gray-800">
+                    <tr>
+                      <th className="text-left px-4 py-2 text-xs font-medium text-gray-500 uppercase">Lineup</th>
+                      <th className="px-3 py-2 text-xs font-medium text-gray-500 uppercase">PTS</th>
+                      <th className="px-3 py-2 text-xs font-medium text-gray-500 uppercase">+/-</th>
+                      <th className="px-3 py-2 text-xs font-medium text-gray-500 uppercase">ORTG</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
+                    {lineupStats.map((ls, i) => (
+                      <tr key={i} className="hover:bg-gray-50 dark:hover:bg-gray-800/50">
+                        <td className="px-4 py-2.5 text-gray-700 dark:text-gray-300 text-xs">
+                          {ls.playerIds
+                            .map((id) => playerNameMap.get(id) ?? id.slice(0, 8))
+                            .join(' · ')}
+                        </td>
+                        <td className="px-3 py-2.5 text-center font-semibold text-gray-900 dark:text-gray-100">{ls.pts}</td>
+                        <td className={`px-3 py-2.5 text-center font-medium ${ls.plusMinus > 0 ? 'text-green-600' : ls.plusMinus < 0 ? 'text-red-500' : 'text-gray-400'}`}>
+                          {ls.plusMinus > 0 ? `+${ls.plusMinus}` : ls.plusMinus}
+                        </td>
+                        <td className="px-3 py-2.5 text-center text-gray-500">
+                          {ls.ortg !== null ? ls.ortg.toFixed(1) : '—'}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+
+          {/* Player Combinations section */}
+          <div className="mt-4 bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 shadow-card overflow-hidden">
+            <div className="px-4 py-3 border-b border-gray-100 dark:border-gray-800 flex items-center justify-between">
+              <div>
+                <h2 className="text-sm font-semibold text-gray-700 dark:text-gray-300">Player Combinations</h2>
+                <p className="text-xs text-gray-400 mt-0.5">Sorted by points scored together</p>
+              </div>
+              {/* Toggle */}
+              <div className="flex gap-1 bg-gray-100 dark:bg-gray-800 rounded-lg p-0.5">
+                {(['2', '3'] as const).map((s) => (
+                  <button
+                    key={s}
+                    onClick={() => setComboSize(s)}
+                    className={`px-3 py-1 rounded text-xs font-medium transition-colors ${
+                      comboSize === s
+                        ? 'bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 shadow-sm'
+                        : 'text-gray-500'
+                    }`}
+                  >
+                    {s}-man
+                  </button>
+                ))}
+              </div>
+            </div>
+            {comboStats.length === 0 ? (
+              <p className="text-center text-gray-400 py-6 text-sm">No combination data yet.</p>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead className="bg-gray-50 dark:bg-gray-800">
+                    <tr>
+                      <th className="text-left px-4 py-2 text-xs font-medium text-gray-500 uppercase">Players</th>
+                      <th className="px-3 py-2 text-xs font-medium text-gray-500 uppercase">PTS</th>
+                      <th className="px-3 py-2 text-xs font-medium text-gray-500 uppercase">Events</th>
+                      <th className="px-3 py-2 text-xs font-medium text-gray-500 uppercase">PTS/50</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
+                    {comboStats.map((c, i) => (
+                      <tr key={i} className="hover:bg-gray-50 dark:hover:bg-gray-800/50">
+                        <td className="px-4 py-2.5 text-gray-700 dark:text-gray-300 text-xs">
+                          {c.playerIds.map((id) => playerNameMap.get(id) ?? id.slice(0, 8)).join(' · ')}
+                        </td>
+                        <td className="px-3 py-2.5 text-center font-semibold text-gray-900 dark:text-gray-100">{c.pts}</td>
+                        <td className="px-3 py-2.5 text-center text-gray-500">{c.eventsTogether}</td>
+                        <td className="px-3 py-2.5 text-center text-gray-500">{c.ptsPer50.toFixed(1)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </>
       )}
 
       {/* Game flow tab */}
