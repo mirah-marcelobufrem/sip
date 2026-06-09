@@ -19,6 +19,15 @@ interface GameTemplate {
   overtimeDurationMinutes: number;
 }
 
+interface Player {
+  id: string;
+  firstName: string;
+  lastName: string;
+  jerseyNumber?: number | null;
+  position?: string | null;
+  status: string;
+}
+
 type Format = 'quarters' | 'halves';
 
 export default function GameSetupWizard({ teamId, teamName, onClose }: GameSetupWizardProps) {
@@ -36,6 +45,9 @@ export default function GameSetupWizard({ teamId, teamName, onClose }: GameSetup
   const [overtimeEnabled, setOvertimeEnabled] = useState(false);
   const [overtimeDuration, setOvertimeDuration] = useState(5);
 
+  // Step 3 — Starting Lineups
+  const [homeStarters, setHomeStarters] = useState<string[]>([]);
+
   // Step 4 — Template
   const [selectedTemplateId, setSelectedTemplateId] = useState('');
   const [saveAsTemplate, setSaveAsTemplate] = useState(false);
@@ -51,6 +63,11 @@ export default function GameSetupWizard({ teamId, teamName, onClose }: GameSetup
     retry: false,
   });
 
+  const { data: homePlayers = [] } = useQuery<Player[]>({
+    queryKey: ['players', teamId],
+    queryFn: () => api.get(`/teams/${teamId}/players`),
+  });
+
   const createMutation = useMutation({
     mutationFn: async (templateSave: boolean) => {
       const gameData = {
@@ -62,6 +79,13 @@ export default function GameSetupWizard({ teamId, teamName, onClose }: GameSetup
       };
 
       const game = await api.post<{ id: string }>(`/teams/${teamId}/games`, gameData);
+
+      if (homeStarters.length > 0) {
+        await api.post(`/games/${game.id}/lineups/initial`, {
+          teamId,
+          playerIds: homeStarters,
+        }).catch(() => undefined); // silently ignore if endpoint not ready
+      }
 
       if (templateSave && templateName) {
         // Save as template — silently ignore errors if endpoint not ready
@@ -253,16 +277,58 @@ export default function GameSetupWizard({ teamId, teamName, onClose }: GameSetup
             </>
           )}
 
-          {/* Step 3 — Starting Lineups (skip step) */}
+          {/* Step 3 — Starting Lineups */}
           {step === 3 && (
             <>
-              <p className="text-sm font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider text-xs">Starting Lineups</p>
-              <div className="bg-gray-50 dark:bg-gray-800 rounded-xl p-5 text-center border border-gray-200 dark:border-gray-700">
-                <p className="text-base font-semibold text-gray-700 dark:text-gray-300 mb-2">Skip for now</p>
-                <p className="text-sm text-gray-500 dark:text-gray-400">
-                  Set your starting lineups from the Live Recording page once the game begins. Substitutions can be tracked in real time.
-                </p>
-              </div>
+              <p className="text-sm font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider text-xs">Starting Lineup — Home Team</p>
+              {(() => {
+                const activePlayers = homePlayers.filter((p) => p.status === 'active');
+                if (activePlayers.length === 0) {
+                  return (
+                    <p className="text-sm text-gray-400 dark:text-gray-500 text-center py-4">
+                      No active players — lineups can be set from the Live Recording page.
+                    </p>
+                  );
+                }
+                return (
+                  <>
+                    <div className="space-y-2">
+                      {activePlayers.map((player) => {
+                        const selected = homeStarters.includes(player.id);
+                        return (
+                          <button
+                            key={player.id}
+                            type="button"
+                            onClick={() => {
+                              if (selected) {
+                                setHomeStarters((prev) => prev.filter((id) => id !== player.id));
+                              } else if (homeStarters.length < 5) {
+                                setHomeStarters((prev) => [...prev, player.id]);
+                              }
+                            }}
+                            className={`w-full rounded-lg px-3 py-2 cursor-pointer text-sm flex items-center gap-2 text-left transition-colors ${
+                              selected
+                                ? 'ring-2 ring-brand-500 bg-brand-50 dark:bg-brand-900/20 text-gray-900 dark:text-gray-100'
+                                : 'border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800 text-gray-700 dark:text-gray-300'
+                            }`}
+                          >
+                            <span className="w-7 text-center font-mono text-xs text-gray-400 dark:text-gray-500 shrink-0">
+                              {player.jerseyNumber != null ? `#${player.jerseyNumber}` : '—'}
+                            </span>
+                            <span className="font-medium">{player.firstName} {player.lastName}</span>
+                            {player.position && (
+                              <span className="ml-auto text-xs text-gray-400 dark:text-gray-500">{player.position}</span>
+                            )}
+                          </button>
+                        );
+                      })}
+                    </div>
+                    <p className="text-xs text-gray-400 dark:text-gray-500 text-center pt-1">
+                      {homeStarters.length} of 5 starters selected
+                    </p>
+                  </>
+                );
+              })()}
             </>
           )}
 
