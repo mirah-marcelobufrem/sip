@@ -1,6 +1,23 @@
+import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useParams } from 'react-router-dom';
 import { api } from '../../lib/api';
+import { ShareSheet } from '../../components/ui/ShareSheet';
+
+interface LeaderEntry {
+  playerId: string;
+  playerName: string;
+  teamName: string | null;
+  value: number;
+  gamesPlayed: number;
+}
+
+interface TournamentLeaders {
+  points: LeaderEntry[];
+  rebounds: LeaderEntry[];
+  assists: LeaderEntry[];
+  steals: LeaderEntry[];
+}
 
 interface TeamEntry {
   seed: number;
@@ -115,6 +132,7 @@ function StandingsView({ tournament }: { tournament: Tournament }) {
 export default function TournamentDetailPage() {
   const { id } = useParams<{ id: string }>();
   const queryClient = useQueryClient();
+  const [showShareSheet, setShowShareSheet] = useState(false);
 
   const { data, isLoading } = useQuery<Tournament>({
     queryKey: ['tournament', id],
@@ -130,7 +148,19 @@ export default function TournamentDetailPage() {
   const shareMutation = useMutation({
     mutationFn: (revoke: boolean) =>
       api.post<{ shareToken: string | null }>(`/tournaments/${id}/share`, { revoke }),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['tournament', id] }),
+    onSuccess: (data, revoke) => {
+      queryClient.invalidateQueries({ queryKey: ['tournament', id] });
+      if (!revoke && data.shareToken) {
+        setShowShareSheet(true);
+      }
+    },
+  });
+
+  const { data: leaders } = useQuery<TournamentLeaders>({
+    queryKey: ['tournament-leaders', id],
+    queryFn: () =>
+      api.get<TournamentLeaders>(`/tournaments/${id}/leaders`),
+    enabled: !!id,
   });
 
   if (isLoading) return <div className="p-6 text-gray-500">Loading…</div>;
@@ -158,28 +188,33 @@ export default function TournamentDetailPage() {
           >
             {STATUS_OPTIONS.map((s) => <option key={s} value={s}>{s}</option>)}
           </select>
-          {data.shareToken ? (
-            <>
-              <button
-                onClick={() => navigator.clipboard.writeText(`${window.location.origin}/bracket/${data.shareToken}`)}
-                className="text-xs px-3 py-1.5 bg-brand-50 dark:bg-brand-900/20 text-brand-700 dark:text-brand-300 hover:bg-brand-100 rounded-lg transition-colors"
-              >
-                Copy share link
-              </button>
-              <button
-                onClick={() => shareMutation.mutate(true)}
-                className="text-xs px-3 py-1.5 bg-gray-100 dark:bg-gray-800 text-gray-600 hover:bg-gray-200 rounded-lg transition-colors"
-              >
-                Revoke
-              </button>
-            </>
-          ) : (
+          <button
+            onClick={() => {
+              if (data.shareToken) {
+                setShowShareSheet(true);
+              } else {
+                shareMutation.mutate(false);
+              }
+            }}
+            disabled={shareMutation.isPending}
+            className="text-xs px-3 py-1.5 bg-brand-50 dark:bg-brand-900/20 text-brand-700 dark:text-brand-300 hover:bg-brand-100 rounded-lg transition-colors disabled:opacity-60"
+          >
+            Share
+          </button>
+          {data.shareToken && (
             <button
-              onClick={() => shareMutation.mutate(false)}
+              onClick={() => shareMutation.mutate(true)}
               className="text-xs px-3 py-1.5 bg-gray-100 dark:bg-gray-800 text-gray-600 hover:bg-gray-200 rounded-lg transition-colors"
             >
-              Share
+              Revoke
             </button>
+          )}
+          {showShareSheet && data.shareToken && (
+            <ShareSheet
+              title={data.name}
+              url={`${window.location.origin}/bracket/${data.shareToken}`}
+              onClose={() => setShowShareSheet(false)}
+            />
           )}
         </div>
       </div>
@@ -201,6 +236,42 @@ export default function TournamentDetailPage() {
           <StandingsView tournament={data} />
         </div>
       )}
+
+      {/* Tournament Leaders */}
+      <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 shadow-card p-4">
+        <h2 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-4">Tournament Leaders</h2>
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+          {(
+            [
+              { label: 'PTS', entries: leaders?.points ?? [] },
+              { label: 'REB', entries: leaders?.rebounds ?? [] },
+              { label: 'AST', entries: leaders?.assists ?? [] },
+              { label: 'STL', entries: leaders?.steals ?? [] },
+            ] as { label: string; entries: LeaderEntry[] }[]
+          ).map(({ label, entries }) => (
+            <div key={label}>
+              <p className="text-xs font-semibold text-gray-500 uppercase mb-2">{label}</p>
+              {entries.length === 0 ? (
+                <p className="text-xs text-gray-400">—</p>
+              ) : (
+                <ol className="space-y-1.5">
+                  {entries.slice(0, 5).map((entry, i) => (
+                    <li key={entry.playerId} className="flex items-center gap-1.5">
+                      <span className="text-xs text-gray-400 w-4 text-right shrink-0">{i + 1}.</span>
+                      <span className="text-xs text-gray-700 dark:text-gray-300 flex-1 truncate">
+                        {entry.playerName}
+                      </span>
+                      <span className="text-xs font-bold text-brand-600 dark:text-brand-400 shrink-0">
+                        {entry.value}
+                      </span>
+                    </li>
+                  ))}
+                </ol>
+              )}
+            </div>
+          ))}
+        </div>
+      </div>
     </div>
   );
 }

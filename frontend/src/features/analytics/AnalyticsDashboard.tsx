@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useMutation } from '@tanstack/react-query';
 import { api } from '../../lib/api';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { GameFlowChart } from '../../components/charts/GameFlowChart';
@@ -70,10 +70,112 @@ interface ComboStat {
   ptsPer50: number;
 }
 
+function AiInsightsTab({ teamId }: { teamId: string }) {
+  const [opponent, setOpponent] = useState('');
+  const [situation, setSituation] = useState('');
+  const [recommendation, setRecommendation] = useState<string | null>(null);
+
+  const lineupMutation = useMutation({
+    mutationFn: () =>
+      api.post<{ recommendation: string }>(`/ai/lineup-recommendation/${teamId}`, {
+        opponent: opponent || undefined,
+        situation: situation || undefined,
+      }),
+    onSuccess: (data) => setRecommendation(data.recommendation),
+  });
+
+  const handleRegenerate = () => {
+    setRecommendation(null);
+    lineupMutation.mutate();
+  };
+
+  return (
+    <div className="space-y-6">
+      {/* Lineup Recommendation */}
+      <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 shadow-card p-5">
+        <h2 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-4">Lineup Recommendation</h2>
+        <div className="space-y-3">
+          <div>
+            <label className="block text-xs font-medium text-gray-500 mb-1">Opponent (optional)</label>
+            <input
+              type="text"
+              value={opponent}
+              onChange={(e) => setOpponent(e.target.value)}
+              placeholder="e.g. Lakers, Team A…"
+              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg text-sm bg-white dark:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-brand-500"
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-500 mb-1">Situation (optional)</label>
+            <input
+              type="text"
+              value={situation}
+              onChange={(e) => setSituation(e.target.value)}
+              placeholder="e.g. playoff game, overtime, must-win…"
+              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg text-sm bg-white dark:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-brand-500"
+            />
+          </div>
+          <div className="flex gap-2">
+            <button
+              onClick={() => lineupMutation.mutate()}
+              disabled={lineupMutation.isPending}
+              className="px-4 py-2 bg-brand-600 hover:bg-brand-700 text-white rounded-lg text-sm font-medium disabled:opacity-60 transition-colors"
+            >
+              {lineupMutation.isPending ? 'Analyzing games…' : 'Get Lineup Recommendations'}
+            </button>
+            {recommendation && (
+              <button
+                onClick={handleRegenerate}
+                disabled={lineupMutation.isPending}
+                className="px-4 py-2 bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-200 rounded-lg text-sm font-medium disabled:opacity-60 transition-colors"
+              >
+                Regenerate
+              </button>
+            )}
+          </div>
+        </div>
+
+        {lineupMutation.isPending && (
+          <div className="mt-4 flex items-center gap-2 text-sm text-gray-500">
+            <svg className="animate-spin h-4 w-4 text-brand-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
+            </svg>
+            Analyzing games…
+          </div>
+        )}
+
+        {recommendation && (
+          <div className="mt-4 bg-brand-50 dark:bg-brand-900/10 border border-brand-200 dark:border-brand-800 rounded-lg p-4">
+            <p className="text-xs font-semibold text-brand-700 dark:text-brand-300 uppercase tracking-wider mb-2">
+              AI Recommendation
+            </p>
+            <p className="text-sm text-gray-700 dark:text-gray-300 whitespace-pre-line leading-relaxed">
+              {recommendation}
+            </p>
+          </div>
+        )}
+
+        {lineupMutation.isError && (
+          <p className="mt-3 text-sm text-red-500">Failed to get recommendations. Please try again.</p>
+        )}
+      </div>
+
+      {/* Development Notes — placeholder */}
+      <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 shadow-card p-5">
+        <h2 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">Development Notes</h2>
+        <p className="text-sm text-gray-400">
+          AI-powered development insights for individual players are available on each player's card page.
+        </p>
+      </div>
+    </div>
+  );
+}
+
 export default function AnalyticsDashboard() {
   const { teamId } = useParams<{ teamId: string }>();
   const [selectedGameId, setSelectedGameId] = useState<string>('');
-  const [activeTab, setActiveTab] = useState<'season' | 'lineup' | 'flow'>('season');
+  const [activeTab, setActiveTab] = useState<'season' | 'lineup' | 'flow' | 'ai'>('season');
   const [trendStat, setTrendStat] = useState<string>('pts');
   const [matchupOpponent, setMatchupOpponent] = useState('');
   const [debouncedOpponent, setDebouncedOpponent] = useState('');
@@ -163,6 +265,7 @@ export default function AnalyticsDashboard() {
     { id: 'season' as const, label: 'Season' },
     { id: 'lineup' as const, label: 'Lineups' },
     { id: 'flow' as const, label: 'Game Flow' },
+    { id: 'ai' as const, label: 'AI Insights' },
   ];
 
   const trendStatOptions = [
@@ -486,6 +589,11 @@ export default function AnalyticsDashboard() {
             )}
           </div>
         </>
+      )}
+
+      {/* AI Insights tab */}
+      {activeTab === 'ai' && (
+        <AiInsightsTab teamId={teamId!} />
       )}
 
       {/* Game flow tab */}
