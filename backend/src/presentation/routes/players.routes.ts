@@ -1,4 +1,4 @@
-import { Router, type Request } from 'express';
+import express, { Router, type Request } from 'express';
 import { z } from 'zod';
 import { getDb } from '../../infrastructure/database/connection.js';
 import { DrizzlePlayerRepository } from '../../infrastructure/database/repositories/player.repository.js';
@@ -66,6 +66,48 @@ router.delete('/:id', async (req: Request<{ teamId: string; id: string }>, res, 
     const db = getDb();
     await new DrizzlePlayerRepository(db).softDelete(req.params.id);
     res.status(204).send();
+  } catch (err) { next(err); }
+});
+
+const VALID_POSITIONS = ['PG', 'SG', 'SF', 'PF', 'C'] as const;
+
+router.post('/import', express.text({ type: ['text/csv', 'text/plain'] }), async (req: Request<{ teamId: string }>, res, next) => {
+  try {
+    const csvText = req.body as string;
+    const lines = csvText.trim().split('\n').filter(Boolean);
+    if (lines.length < 2) {
+      res.status(400).json({ error: 'CSV must have a header row and at least one data row', code: 'VALIDATION_ERROR' }); return;
+    }
+    const headers = lines[0]!.split(',').map((h) => h.trim().replace(/"/g, ''));
+    const db = getDb();
+    const repo = new DrizzlePlayerRepository(db);
+    let imported = 0;
+    const errors: string[] = [];
+
+    for (let i = 1; i < lines.length; i++) {
+      const values = lines[i]!.split(',').map((v) => v.trim().replace(/"/g, ''));
+      const row = Object.fromEntries(headers.map((h, idx) => [h, values[idx] ?? '']));
+      if (!row['firstName'] || !row['lastName']) {
+        errors.push(`Row ${i + 1}: missing firstName or lastName`);
+        continue;
+      }
+      const pos = row['position'] ?? '';
+      await repo.create({
+        teamId: req.params.teamId,
+        firstName: row['firstName'],
+        lastName: row['lastName'],
+        jerseyNumber: row['jerseyNumber'] ? parseInt(row['jerseyNumber']) : undefined,
+        position: (VALID_POSITIONS as readonly string[]).includes(pos) ? pos as typeof VALID_POSITIONS[number] : undefined,
+        heightCm: row['heightCm'] ? parseFloat(row['heightCm']) : undefined,
+        weightKg: row['weightKg'] ? parseFloat(row['weightKg']) : undefined,
+        nationality: row['nationality'] || undefined,
+        dominantHand: row['dominantHand'] === 'L' || row['dominantHand'] === 'R' ? row['dominantHand'] : undefined,
+        notes: row['notes'] || undefined,
+        status: 'active',
+      });
+      imported++;
+    }
+    res.json({ imported, skipped: errors.length, errors });
   } catch (err) { next(err); }
 });
 

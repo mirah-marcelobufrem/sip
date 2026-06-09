@@ -1,7 +1,8 @@
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../../lib/api';
+import { useAuthStore } from '../../store/auth.store';
 
 interface Player {
   id: string;
@@ -123,6 +124,24 @@ export default function PlayersPage() {
   const queryClient = useQueryClient();
   const [showAdd, setShowAdd] = useState(false);
   const [editingPlayer, setEditingPlayer] = useState<Player | null>(null);
+  const [csvResult, setCsvResult] = useState<{ imported: number; skipped: number } | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleCsvImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const csvText = await file.text();
+    const { accessToken } = useAuthStore.getState();
+    const res = await fetch(`/api/v1/teams/${teamId}/players/import`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/csv', 'Authorization': `Bearer ${accessToken}` },
+      body: csvText,
+    });
+    const data = await res.json() as { imported: number; skipped: number };
+    setCsvResult(data);
+    queryClient.invalidateQueries({ queryKey: ['players', teamId] });
+    e.target.value = '';
+  };
 
   const { data: players = [], isLoading } = useQuery<Player[]>({
     queryKey: ['players', teamId],
@@ -155,13 +174,40 @@ export default function PlayersPage() {
           <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">Roster</h1>
           <p className="text-sm text-gray-500 mt-0.5">{activePlayers.length} active players</p>
         </div>
-        <button
-          onClick={() => setShowAdd(true)}
-          className="px-4 py-2 bg-brand-600 hover:bg-brand-700 text-white rounded-lg text-sm font-medium transition-colors"
-        >
-          + Add Player
-        </button>
+        <div className="flex gap-2">
+          <button
+            onClick={() => fileInputRef.current?.click()}
+            className="px-4 py-2 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-lg text-sm font-medium transition-colors"
+          >
+            Import CSV
+          </button>
+          <button
+            onClick={() => setShowAdd(true)}
+            className="px-4 py-2 bg-brand-600 hover:bg-brand-700 text-white rounded-lg text-sm font-medium transition-colors"
+          >
+            + Add Player
+          </button>
+        </div>
       </div>
+
+      {/* CSV result toast */}
+      {csvResult && (
+        <div className="mb-4 flex items-center justify-between px-4 py-3 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg text-sm">
+          <span className="text-green-700 dark:text-green-400">
+            Imported {csvResult.imported} player{csvResult.imported !== 1 ? 's' : ''}{csvResult.skipped > 0 ? `, ${csvResult.skipped} skipped` : ''}
+          </span>
+          <button onClick={() => setCsvResult(null)} className="text-green-500 hover:text-green-700 ml-4">✕</button>
+        </div>
+      )}
+
+      {/* Hidden CSV file input */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept=".csv,text/csv"
+        className="hidden"
+        onChange={handleCsvImport}
+      />
 
       {isLoading && <p className="text-gray-500">Loading…</p>}
 

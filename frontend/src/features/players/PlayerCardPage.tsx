@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { useQuery, useMutation } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { api } from '../../lib/api';
 import { ShotChart } from '../../components/charts/ShotChart';
@@ -47,6 +47,14 @@ interface DevEntry {
   notes: string | null;
 }
 
+interface DevGoal {
+  id: string;
+  metricName: string;
+  targetValue: number;
+  targetDate: string | null;
+  achievedAt: string | null;
+}
+
 const SKILL_LABELS: Record<string, string> = {
   scoring: 'Scoring',
   ballHandling: 'Ball Hdlg',
@@ -64,6 +72,11 @@ export default function PlayerCardPage() {
   const { teamId, playerId } = useParams<{ teamId: string; playerId: string }>();
   const [devInsights, setDevInsights] = useState<string | null>(null);
   const [showShareSheet, setShowShareSheet] = useState(false);
+  const [devTab, setDevTab] = useState<'log' | 'chart' | 'goals'>('log');
+  const [entryForm, setEntryForm] = useState({ date: '', category: 'technical', metricName: '', metricValue: '', notes: '' });
+  const [goalForm, setGoalForm] = useState({ metricName: '', targetValue: '', targetDate: '' });
+
+  const queryClient = useQueryClient();
 
   const insightsMutation = useMutation({
     mutationFn: () => api.post<{ insights: string }>(`/ai/development-insights/${playerId}`, {}),
@@ -96,6 +109,39 @@ export default function PlayerCardPage() {
     queryFn: () => api.get(`/players/${playerId}/development`),
   });
 
+  const { data: devGoals = [] } = useQuery<DevGoal[]>({
+    queryKey: ['dev-goals', playerId],
+    queryFn: () => api.get(`/players/${playerId}/development/goals`),
+  });
+
+  const addEntryMutation = useMutation({
+    mutationFn: (data: { date: string; category: string; metricName: string; metricValue?: number; notes?: string }) =>
+      api.post(`/players/${playerId}/development`, data),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['dev-entries', playerId] }),
+  });
+
+  const deleteEntryMutation = useMutation({
+    mutationFn: (entryId: string) => api.delete(`/players/${playerId}/development/${entryId}`),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['dev-entries', playerId] }),
+  });
+
+  const addGoalMutation = useMutation({
+    mutationFn: (data: { metricName: string; targetValue: number; targetDate?: string }) =>
+      api.post(`/players/${playerId}/development/goals`, data),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['dev-goals', playerId] }),
+  });
+
+  const markAchievedMutation = useMutation({
+    mutationFn: (goalId: string) =>
+      api.put(`/players/${playerId}/development/goals/${goalId}`, { achievedAt: new Date().toISOString() }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['dev-goals', playerId] }),
+  });
+
+  const deleteGoalMutation = useMutation({
+    mutationFn: (goalId: string) => api.delete(`/players/${playerId}/development/goals/${goalId}`),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['dev-goals', playerId] }),
+  });
+
   const player = chartData?.player;
   const shots = chartData?.shots ?? [];
 
@@ -126,15 +172,12 @@ export default function PlayerCardPage() {
 
   const hasSkillData = avgSkills.some((a) => a.value > 0);
 
-  // Development trend — group entries by metricName, show first 3 metrics chronologically
+  // Development trend — group entries by metricName
   const devByMetric = devEntries.reduce<Record<string, DevEntry[]>>((acc, e) => {
     if (!acc[e.metricName]) acc[e.metricName] = [];
     acc[e.metricName].push(e);
     return acc;
   }, {});
-  const topMetrics = Object.entries(devByMetric)
-    .filter(([, entries]) => entries.length > 1)
-    .slice(0, 2);
 
   return (
     <div className="p-6 max-w-4xl mx-auto space-y-6">
@@ -258,37 +301,161 @@ export default function PlayerCardPage() {
         </div>
       </div>
 
-      {/* Development trend charts */}
-      {topMetrics.length > 0 && (
-        <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 p-4 shadow-card">
-          <h2 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-4">Development Trends</h2>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
-            {topMetrics.map(([metric, entries]) => {
-              const sorted = [...entries].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
-              const data = sorted.map((e) => ({
-                date: new Date(e.date).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }),
-                value: e.metricValue,
-              }));
-              return (
-                <div key={metric}>
-                  <p className="text-xs font-medium text-gray-500 mb-2 capitalize">{metric}</p>
-                  <div className="h-36">
-                    <ResponsiveContainer width="100%" height="100%">
-                      <LineChart data={data} margin={{ top: 4, right: 4, left: -24, bottom: 0 }}>
-                        <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-                        <XAxis dataKey="date" tick={{ fontSize: 9 }} />
-                        <YAxis tick={{ fontSize: 9 }} domain={['auto', 'auto']} />
-                        <Tooltip />
-                        <Line type="monotone" dataKey="value" stroke="#1a56db" strokeWidth={2} dot={{ r: 3 }} />
-                      </LineChart>
-                    </ResponsiveContainer>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
+      {/* Development tracking */}
+      <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 shadow-card">
+        <div className="flex border-b border-gray-200 dark:border-gray-800">
+          {(['log', 'chart', 'goals'] as const).map((tab) => (
+            <button
+              key={tab}
+              onClick={() => setDevTab(tab)}
+              className={`px-4 py-3 text-sm font-medium capitalize ${devTab === tab ? 'border-b-2 border-brand-600 text-brand-600 dark:text-brand-400' : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'}`}
+            >
+              {tab === 'log' ? 'Dev Log' : tab === 'chart' ? 'Trends' : 'Goals'}
+            </button>
+          ))}
         </div>
-      )}
+
+        <div className="p-4">
+          {devTab === 'log' && (
+            <div className="space-y-4">
+              {/* Add entry form */}
+              <form onSubmit={(e) => {
+                e.preventDefault();
+                if (!entryForm.date || !entryForm.metricName) return;
+                addEntryMutation.mutate({
+                  date: new Date(entryForm.date).toISOString(),
+                  category: entryForm.category,
+                  metricName: entryForm.metricName,
+                  metricValue: entryForm.metricValue ? parseFloat(entryForm.metricValue) : undefined,
+                  notes: entryForm.notes || undefined,
+                });
+                setEntryForm({ date: '', category: 'technical', metricName: '', metricValue: '', notes: '' });
+              }} className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                <input type="date" value={entryForm.date} onChange={(e) => setEntryForm(f => ({ ...f, date: e.target.value }))}
+                  className="border border-gray-200 dark:border-gray-700 rounded-lg px-3 py-2 text-sm bg-white dark:bg-gray-800" required />
+                <select value={entryForm.category} onChange={(e) => setEntryForm(f => ({ ...f, category: e.target.value }))}
+                  className="border border-gray-200 dark:border-gray-700 rounded-lg px-3 py-2 text-sm bg-white dark:bg-gray-800">
+                  {['physical', 'technical', 'tactical', 'mental'].map(c => <option key={c} value={c}>{c}</option>)}
+                </select>
+                <input type="text" placeholder="Metric name" value={entryForm.metricName} onChange={(e) => setEntryForm(f => ({ ...f, metricName: e.target.value }))}
+                  className="border border-gray-200 dark:border-gray-700 rounded-lg px-3 py-2 text-sm bg-white dark:bg-gray-800" required />
+                <input type="number" placeholder="Value" value={entryForm.metricValue} onChange={(e) => setEntryForm(f => ({ ...f, metricValue: e.target.value }))}
+                  className="border border-gray-200 dark:border-gray-700 rounded-lg px-3 py-2 text-sm bg-white dark:bg-gray-800" />
+                <input type="text" placeholder="Notes (optional)" value={entryForm.notes} onChange={(e) => setEntryForm(f => ({ ...f, notes: e.target.value }))}
+                  className="border border-gray-200 dark:border-gray-700 rounded-lg px-3 py-2 text-sm bg-white dark:bg-gray-800" />
+                <button type="submit" disabled={addEntryMutation.isPending}
+                  className="px-4 py-2 bg-brand-600 text-white rounded-lg text-sm font-medium disabled:opacity-60">
+                  + Add Entry
+                </button>
+              </form>
+              {/* Entries list */}
+              {devEntries.length === 0 ? (
+                <p className="text-center text-gray-400 py-6 text-sm">No development entries yet</p>
+              ) : (
+                <div className="space-y-2">
+                  {devEntries.map((e) => {
+                    const catColor = { physical: 'bg-blue-100 text-blue-700', technical: 'bg-green-100 text-green-700', tactical: 'bg-purple-100 text-purple-700', mental: 'bg-orange-100 text-orange-700' }[e.category] ?? 'bg-gray-100 text-gray-700';
+                    return (
+                      <div key={e.id} className="flex items-center gap-3 p-3 bg-gray-50 dark:bg-gray-800 rounded-lg">
+                        <span className="text-xs text-gray-400 w-20 shrink-0">{new Date(e.date).toLocaleDateString()}</span>
+                        <span className={`text-xs px-2 py-0.5 rounded-full font-medium shrink-0 ${catColor}`}>{e.category}</span>
+                        <span className="text-sm font-medium text-gray-800 dark:text-gray-200 flex-1">{e.metricName}</span>
+                        {e.metricValue != null && <span className="text-sm text-brand-600 font-bold shrink-0">{e.metricValue}</span>}
+                        {e.notes && <span className="text-xs text-gray-400 truncate flex-1">{e.notes}</span>}
+                        <button onClick={() => deleteEntryMutation.mutate(e.id)}
+                          className="text-xs text-red-400 hover:text-red-600 shrink-0">✕</button>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
+
+          {devTab === 'chart' && (
+            <div>
+              {Object.keys(devByMetric).length === 0 ? (
+                <p className="text-center text-gray-400 py-6 text-sm">No data to chart yet</p>
+              ) : (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+                  {Object.entries(devByMetric).map(([metric, entries]) => {
+                    const sorted = [...entries].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+                    const data = sorted.map((e) => ({
+                      date: new Date(e.date).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }),
+                      value: e.metricValue,
+                    }));
+                    return (
+                      <div key={metric}>
+                        <p className="text-xs font-medium text-gray-500 mb-2 capitalize">{metric}</p>
+                        <div className="h-36">
+                          <ResponsiveContainer width="100%" height="100%">
+                            <LineChart data={data} margin={{ top: 4, right: 4, left: -24, bottom: 0 }}>
+                              <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+                              <XAxis dataKey="date" tick={{ fontSize: 9 }} />
+                              <YAxis tick={{ fontSize: 9 }} domain={['auto', 'auto']} />
+                              <Tooltip />
+                              <Line type="monotone" dataKey="value" stroke="#1a56db" strokeWidth={2} dot={{ r: 3 }} />
+                            </LineChart>
+                          </ResponsiveContainer>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
+
+          {devTab === 'goals' && (
+            <div className="space-y-4">
+              {/* Add goal form */}
+              <form onSubmit={(e) => {
+                e.preventDefault();
+                if (!goalForm.metricName || !goalForm.targetValue) return;
+                addGoalMutation.mutate({
+                  metricName: goalForm.metricName,
+                  targetValue: parseFloat(goalForm.targetValue),
+                  targetDate: goalForm.targetDate ? new Date(goalForm.targetDate).toISOString() : undefined,
+                });
+                setGoalForm({ metricName: '', targetValue: '', targetDate: '' });
+              }} className="flex flex-wrap gap-2">
+                <input type="text" placeholder="Metric name" value={goalForm.metricName} onChange={(e) => setGoalForm(f => ({ ...f, metricName: e.target.value }))}
+                  className="border border-gray-200 dark:border-gray-700 rounded-lg px-3 py-2 text-sm bg-white dark:bg-gray-800" required />
+                <input type="number" placeholder="Target value" value={goalForm.targetValue} onChange={(e) => setGoalForm(f => ({ ...f, targetValue: e.target.value }))}
+                  className="border border-gray-200 dark:border-gray-700 rounded-lg px-3 py-2 text-sm bg-white dark:bg-gray-800 w-32" required />
+                <input type="date" value={goalForm.targetDate} onChange={(e) => setGoalForm(f => ({ ...f, targetDate: e.target.value }))}
+                  className="border border-gray-200 dark:border-gray-700 rounded-lg px-3 py-2 text-sm bg-white dark:bg-gray-800" />
+                <button type="submit" disabled={addGoalMutation.isPending}
+                  className="px-4 py-2 bg-brand-600 text-white rounded-lg text-sm font-medium disabled:opacity-60">
+                  + Add Goal
+                </button>
+              </form>
+              {devGoals.length === 0 ? (
+                <p className="text-center text-gray-400 py-6 text-sm">No goals set yet</p>
+              ) : (
+                <div className="space-y-2">
+                  {devGoals.map((g) => (
+                    <div key={g.id} className="flex items-center gap-3 p-3 bg-gray-50 dark:bg-gray-800 rounded-lg">
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium text-gray-800 dark:text-gray-200">{g.metricName}</p>
+                        <p className="text-xs text-gray-400">Target: {g.targetValue}{g.targetDate ? ` by ${new Date(g.targetDate).toLocaleDateString()}` : ''}</p>
+                      </div>
+                      {g.achievedAt ? (
+                        <span className="text-xs px-2 py-1 bg-green-100 text-green-700 rounded-full font-medium">Achieved</span>
+                      ) : (
+                        <button onClick={() => markAchievedMutation.mutate(g.id)}
+                          className="text-xs px-2 py-1 bg-brand-50 text-brand-700 rounded-lg hover:bg-brand-100">Mark Achieved</button>
+                      )}
+                      <button onClick={() => deleteGoalMutation.mutate(g.id)}
+                        className="text-xs text-red-400 hover:text-red-600 shrink-0">✕</button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
     </div>
   );
 }
