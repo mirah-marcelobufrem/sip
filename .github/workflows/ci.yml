@@ -45,6 +45,9 @@ jobs:
       - name: TypeScript check
         run: npm run typecheck
 
+      - name: Lint
+        run: npm run lint
+
       - name: Run migrations
         run: npm run db:migrate
         env:
@@ -84,6 +87,9 @@ jobs:
 
       - name: TypeScript check
         run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
 
       - name: Run unit tests
         run: npm run test
@@ -141,6 +147,21 @@ jobs:
           PORT: 3001
           NODE_ENV: test
 
+      - name: Wait for backend to be ready
+        run: |
+          for i in $(seq 1 30); do
+            status=$(curl -s -o /dev/null -w "%{http_code}" \
+              -X POST http://localhost:3001/api/v1/auth/login \
+              -H 'Content-Type: application/json' \
+              -d '{"email":"x","password":"x"}' 2>/dev/null || echo "000")
+            if [[ "$status" =~ ^[24] ]]; then
+              echo "Backend ready (HTTP $status)"
+              break
+            fi
+            echo "Waiting for backend... ($i/30)"
+            sleep 2
+          done
+
       - name: Install frontend deps
         run: npm ci
         working-directory: frontend
@@ -154,6 +175,18 @@ jobs:
         working-directory: frontend
         env:
           VITE_API_URL: http://localhost:3001/api/v1
+
+      - name: Serve frontend
+        run: npx vite preview --port 5173 --host &
+        working-directory: frontend
+
+      - name: Wait for frontend to be ready
+        run: |
+          for i in $(seq 1 30); do
+            curl -s http://localhost:5173 > /dev/null && echo "Frontend ready" && break
+            echo "Waiting for frontend... ($i/30)"
+            sleep 2
+          done
 
       - name: Run E2E tests
         run: npx playwright test
