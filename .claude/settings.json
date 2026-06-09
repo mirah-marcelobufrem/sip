@@ -12,7 +12,9 @@
       "Bash(rm -rf /Users/marcelobufrem/work/repositories/sip/.claude/agents && rtk ls /Users/marcelobufrem/work/repositories/sip/.claude/)",
       "Bash(rtk wc *)",
       "Bash(grep -E \"\\\\.\\(ts|js\\)$\")",
-      "Bash(rtk find *)"
+      "Bash(rtk find *)",
+      "Bash(bash -n /Users/marcelobufrem/work/repositories/sip/start.sh)",
+      "Bash(bash -n /Users/marcelobufrem/work/repositories/sip/stop.sh)"
     ],
     "additionalDirectories": [
       "/Users/marcelobufrem",

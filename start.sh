@@ -30,15 +30,24 @@ cd "$PROJECT_DIR"
 ok "Working directory: $PROJECT_DIR"
 
 # ── optional rebuild flag ────────────────────────────────────────────────────
-BUILD_FLAG=""
+# --no-cache is a build-time flag; it is NOT valid for `docker compose up`.
+# We therefore separate the build and up steps when a rebuild is requested.
+FULL_REBUILD=false
 if [[ "${1:-}" == "--build" ]]; then
-  BUILD_FLAG="--build --no-cache"
+  FULL_REBUILD=true
   warn "Full rebuild requested (--build --no-cache)"
+fi
+
+# ── rebuild images if requested ──────────────────────────────────────────────
+if $FULL_REBUILD; then
+  step "Rebuilding images (no cache)"
+  docker compose build --no-cache backend frontend
+  ok "Images rebuilt"
 fi
 
 # ── start postgres ───────────────────────────────────────────────────────────
 step "Starting PostgreSQL"
-docker compose up -d postgres $BUILD_FLAG
+docker compose up -d postgres
 info "Waiting for postgres health check…"
 for i in $(seq 1 70); do
   CID=$(docker compose ps -q postgres 2>/dev/null || true)
@@ -56,18 +65,20 @@ done
 
 # ── start backend ─────────────────────────────────────────────────────────────
 step "Starting backend"
-# Step 1: create the container (volumes initialized from image on first run)
-docker compose up -d --no-deps backend $BUILD_FLAG
+# Two-step workaround for the Apple Silicon Docker named-volume init loop:
+# Step 1 — create the container so Docker populates the node_modules volume
+#           from the image layer; --force-recreate ensures a clean container
+#           even on subsequent runs.
+docker compose up -d --no-deps --force-recreate backend
 info "Waiting 6 s for volume initialisation…"
 sleep 6
-
-# Step 2: stop the container (avoids the Apple-Silicon Docker volume init restart loop)
+# Step 2 — stop then start so the process picks up the now-populated volume.
 docker compose stop backend >/dev/null 2>&1 || true
-
-# Step 3: start it cleanly — picks up the correct Linux node_modules volume
 docker compose start backend
+
 info "Waiting for backend API to respond…"
-for i in $(seq 1 60); do
+info "(npm ci + db:migrate can take 2–3 min on first run or after --clean)"
+for i in $(seq 1 180); do
   HTTP=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:3001/api/v1/auth/login \
          -X POST -H 'Content-Type: application/json' \
          -d '{"email":"x","password":"x"}' 2>/dev/null || echo "000")
@@ -75,17 +86,16 @@ for i in $(seq 1 60); do
     ok "Backend is responding (HTTP $HTTP)"
     break
   fi
-  if [[ $i -eq 60 ]]; then
+  if [[ $i -eq 180 ]]; then
     docker compose logs backend --tail 30
-    fail "Backend did not respond after 60 seconds"
+    fail "Backend did not respond after 180 seconds"
   fi
   sleep 1
 done
 
 # ── start frontend ────────────────────────────────────────────────────────────
 step "Starting frontend"
-# Same two-step trick for the frontend
-docker compose up -d --no-deps --force-recreate frontend $BUILD_FLAG
+docker compose up -d --no-deps --force-recreate frontend
 info "Waiting 6 s for volume initialisation…"
 sleep 6
 docker compose stop frontend >/dev/null 2>&1 || true
@@ -113,7 +123,8 @@ echo -e "${GREEN}${BOLD}━━━━━━━━━━━━━━━━━━�
 echo -e "${GREEN}${BOLD}  SIP Scout is ready${RESET}"
 echo -e "${GREEN}${BOLD}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}"
 echo ""
-echo -e "  ${BOLD}Frontend${RESET}   http://localhost:5173"
-echo -e "  ${BOLD}Backend${RESET}    http://localhost:3001/api/v1"
-echo -e "  ${BOLD}Postgres${RESET}   localhost:5432  (sip / sip)"
+echo -e "  ${BOLD}Frontend${RESET}       http://localhost:5173"
+echo -e "  ${BOLD}Backend API${RESET}    http://localhost:3001/api/v1"
+echo -e "  ${BOLD}Postgres${RESET}       localhost:5432  (sip / sip)"
+echo -e "  ${BOLD}Drizzle Studio${RESET} cd backend && npm run db:studio"
 echo ""

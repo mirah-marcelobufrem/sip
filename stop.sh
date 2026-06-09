@@ -29,6 +29,11 @@ ok "Docker daemon is running"
 cd "$PROJECT_DIR"
 ok "Working directory: $PROJECT_DIR"
 
+# ── compose project prefix (default: directory name) ─────────────────────────
+# Docker Compose prefixes volume names with the project name.
+# $COMPOSE_PROJECT_NAME overrides the default (directory basename).
+PROJECT="${COMPOSE_PROJECT_NAME:-$(basename "$PROJECT_DIR")}"
+
 # ── parse flags ───────────────────────────────────────────────────────────────
 REMOVE_MODULES=false
 REMOVE_ALL=false
@@ -42,24 +47,32 @@ done
 
 # ── stop and remove containers ────────────────────────────────────────────────
 step "Stopping containers"
-docker compose down
+docker compose down --remove-orphans
 ok "All containers stopped and removed"
 
 # ── volume management ─────────────────────────────────────────────────────────
 if $REMOVE_ALL; then
-  step "Removing ALL volumes (including database data)"
-  warn "This will permanently delete the PostgreSQL database!"
+  step "Removing ALL volumes (including database data and uploads)"
+  warn "This will permanently delete the PostgreSQL database and all uploaded files!"
   read -r -p "   Are you sure? [y/N] " confirm
   if [[ "${confirm,,}" == "y" ]]; then
-    docker volume rm sip_postgres_data sip_uploads sip_backend_modules sip_frontend_modules 2>/dev/null || true
+    docker volume rm \
+      "${PROJECT}_postgres_data" \
+      "${PROJECT}_uploads" \
+      "${PROJECT}_backend_modules" \
+      "${PROJECT}_frontend_modules" \
+      2>/dev/null || warn "Some volumes were already absent — skipped"
     ok "All volumes removed"
   else
     info "Skipped — volumes untouched"
   fi
 elif $REMOVE_MODULES; then
-  step "Removing node_modules volumes (preserving database)"
+  step "Removing node_modules volumes (preserving database and uploads)"
   info "This forces a clean npm ci on next start"
-  docker volume rm sip_backend_modules sip_frontend_modules 2>/dev/null || true
+  docker volume rm \
+    "${PROJECT}_backend_modules" \
+    "${PROJECT}_frontend_modules" \
+    2>/dev/null || warn "Some volumes were already absent — skipped"
   ok "node_modules volumes removed"
 else
   step "Persistent volumes (retained)"
@@ -70,7 +83,7 @@ fi
 
 # ── final status ──────────────────────────────────────────────────────────────
 step "Remaining volumes"
-docker volume ls --filter "name=sip_" 2>/dev/null || true
+docker volume ls --filter "name=${PROJECT}_" 2>/dev/null || true
 
 echo ""
 echo -e "${GREEN}${BOLD}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}"
