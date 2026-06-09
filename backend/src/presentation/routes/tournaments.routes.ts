@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import { getDb } from '../../infrastructure/database/connection.js';
+import { getDb, getPool } from '../../infrastructure/database/connection.js';
 import { DrizzleTournamentRepository } from '../../infrastructure/database/repositories/tournament.repository.js';
 import { authenticate } from '../middleware/auth.middleware.js';
 import {
@@ -156,6 +156,63 @@ router.get('/:id/standings', async (req, res, next) => {
       results,
     );
     res.json(standings);
+  } catch (err) { next(err); }
+});
+
+router.get('/:id/leaders', async (req, res, next) => {
+  try {
+    const pool = getPool();
+    const { rows } = await pool.query<{
+      player_id: string;
+      player_name: string;
+      team_name: string | null;
+      games_played: string;
+      pts: string;
+      reb: string;
+      ast: string;
+      stl: string;
+    }>(
+      `SELECT
+        se.player_id,
+        p.first_name || ' ' || p.last_name AS player_name,
+        t.name AS team_name,
+        COUNT(DISTINCT g.id) AS games_played,
+        SUM(CASE
+          WHEN se.stat_type IN ('2PM', '3PM') THEN 2
+          WHEN se.stat_type = 'FTM' THEN 1
+          ELSE 0
+        END) AS pts,
+        COUNT(CASE WHEN se.stat_type IN ('OREB', 'DREB') THEN 1 END) AS reb,
+        COUNT(CASE WHEN se.stat_type = 'AST' THEN 1 END) AS ast,
+        COUNT(CASE WHEN se.stat_type = 'STL' THEN 1 END) AS stl
+      FROM tournament_games tg
+      JOIN stat_events se ON se.game_id = tg.game_id AND se.deleted_at IS NULL
+      LEFT JOIN players p ON p.id = se.player_id
+      LEFT JOIN teams t ON t.id = p.team_id
+      LEFT JOIN games g ON g.id = tg.game_id
+      WHERE tg.tournament_id = $1 AND p.id IS NOT NULL
+      GROUP BY se.player_id, p.first_name, p.last_name, t.name`,
+      [req.params.id],
+    );
+
+    const top5 = (key: 'pts' | 'reb' | 'ast' | 'stl') =>
+      [...rows]
+        .sort((a, b) => Number(b[key]) - Number(a[key]))
+        .slice(0, 5)
+        .map((r) => ({
+          playerId: r.player_id,
+          playerName: r.player_name,
+          teamName: r.team_name,
+          value: Number(r[key]),
+          gamesPlayed: Number(r.games_played),
+        }));
+
+    res.json({
+      points: top5('pts'),
+      rebounds: top5('reb'),
+      assists: top5('ast'),
+      steals: top5('stl'),
+    });
   } catch (err) { next(err); }
 });
 
