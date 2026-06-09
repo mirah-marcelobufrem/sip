@@ -4,6 +4,7 @@ import { useAuthStore } from '../../store/auth.store';
 
 const navItems = [
   { to: '/teams', label: 'Teams', icon: '🏀' },
+  { to: '/opponent-teams', label: 'Opponents', icon: '🆚' },
   { to: '/scouting', label: 'Scouting', icon: '🔍' },
   { to: '/tournaments', label: 'Tournaments', icon: '🏆' },
   { to: '/settings', label: 'Settings', icon: '⚙️' },

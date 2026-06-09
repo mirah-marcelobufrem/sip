@@ -1,5 +1,8 @@
 import { Router } from 'express';
 import rateLimit from 'express-rate-limit';
+import { createHash, randomBytes } from 'crypto';
+import bcrypt from 'bcryptjs';
+import { eq, and, gt, isNull } from 'drizzle-orm';
 import { getDb } from '../../infrastructure/database/connection.js';
 import { DrizzleUserRepository } from '../../infrastructure/database/repositories/user.repository.js';
 import { DrizzleRefreshTokenRepository } from '../../infrastructure/database/repositories/refresh-token.repository.js';
@@ -9,6 +12,7 @@ import { loginUser, LoginUserInput } from '../../application/auth/loginUser.js';
 import { refreshTokens } from '../../application/auth/refreshTokens.js';
 import { authenticate } from '../middleware/auth.middleware.js';
 import { hashToken } from '../../infrastructure/auth/token-hash.js';
+import { users } from '../../infrastructure/database/schema/users.schema.js';
 
 const router = Router();
 
@@ -100,6 +104,61 @@ router.get('/me', authenticate, async (req, res, next) => {
   } catch (err) {
     next(err);
   }
+});
+
+router.post('/forgot-password', authLimiter, async (req, res, next) => {
+  try {
+    const { email } = req.body as { email?: string };
+    if (!email) {
+      res.status(400).json({ error: 'email required', code: 'VALIDATION_ERROR' }); return;
+    }
+    const db = getDb();
+    const rows = await db.select().from(users)
+      .where(and(eq(users.email, email), isNull(users.deletedAt)))
+      .limit(1);
+    if (rows.length > 0) {
+      const token = randomBytes(32).toString('hex');
+      const tokenHash = createHash('sha256').update(token).digest('hex');
+      await db.update(users).set({
+        resetToken: tokenHash,
+        resetTokenExpiresAt: new Date(Date.now() + 60 * 60 * 1000),
+      }).where(eq(users.email, email));
+      console.log(`Password reset token for ${email}: ${token}`);
+    }
+    res.json({ message: 'If that email exists, a reset link has been sent' });
+  } catch (err) { next(err); }
+});
+
+router.post('/reset-password', authLimiter, async (req, res, next) => {
+  try {
+    const { token, newPassword } = req.body as { token?: string; newPassword?: string };
+    if (!token || !newPassword) {
+      res.status(400).json({ error: 'token and newPassword required', code: 'VALIDATION_ERROR' }); return;
+    }
+    if (newPassword.length < 8) {
+      res.status(400).json({ error: 'newPassword must be at least 8 characters', code: 'VALIDATION_ERROR' }); return;
+    }
+    const db = getDb();
+    const tokenHash = createHash('sha256').update(token).digest('hex');
+    const rows = await db.select().from(users)
+      .where(and(
+        eq(users.resetToken, tokenHash),
+        gt(users.resetTokenExpiresAt, new Date()),
+        isNull(users.deletedAt),
+      ))
+      .limit(1);
+    if (rows.length === 0) {
+      throw Object.assign(new Error('Invalid or expired reset token'), { code: 'INVALID_TOKEN' });
+    }
+    const passwordHash = await bcrypt.hash(newPassword, 10);
+    await db.update(users).set({
+      passwordHash,
+      resetToken: null,
+      resetTokenExpiresAt: null,
+      updatedAt: new Date(),
+    }).where(eq(users.id, rows[0]!.id));
+    res.json({ message: 'Password reset successfully' });
+  } catch (err) { next(err); }
 });
 
 export default router;

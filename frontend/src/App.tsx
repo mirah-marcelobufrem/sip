@@ -23,6 +23,11 @@ import TournamentDetailPage from './features/tournaments/TournamentDetailPage';
 import PublicBracketPage from './features/tournaments/PublicBracketPage';
 import SettingsPage from './features/settings/SettingsPage';
 import AccountPage from './features/settings/AccountPage';
+import OpponentTeamsPage from './features/teams/OpponentTeamsPage';
+import OpponentProfilePage from './features/teams/OpponentProfilePage';
+import ForgotPasswordPage from './features/auth/ForgotPasswordPage';
+import ResetPasswordPage from './features/auth/ResetPasswordPage';
+import PlayerComparisonPage from './features/players/PlayerComparisonPage';
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
   const isAuthenticated = useAuthStore((s) => !!s.accessToken);
@@ -38,6 +43,8 @@ export default function App() {
       <Routes>
         <Route path="/login" element={<LoginPage />} />
         <Route path="/register" element={<RegisterPage />} />
+        <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+        <Route path="/reset-password" element={<ResetPasswordPage />} />
         <Route path="/bracket/:token" element={<PublicBracketPage />} />
         <Route path="/scouting/share/:token" element={<PublicScoutingReportPage />} />
         <Route
@@ -65,6 +72,9 @@ export default function App() {
           <Route path="tournaments/:id" element={<TournamentDetailPage />} />
           <Route path="settings" element={<SettingsPage />} />
           <Route path="account" element={<AccountPage />} />
+          <Route path="teams/:teamId/players/compare" element={<PlayerComparisonPage />} />
+          <Route path="opponent-teams" element={<OpponentTeamsPage />} />
+          <Route path="opponent-teams/:id" element={<OpponentProfilePage />} />
         </Route>
       </Routes>
     </BrowserRouter>
