@@ -184,6 +184,24 @@ router.patch(
   },
 );
 
+router.post('/:gameId/lineups/initial', async (req, res, next) => {
+  try {
+    const input = z.object({
+      teamId: z.string().uuid(),
+      playerIds: z.array(z.string().uuid()).min(1).max(5),
+    }).parse(req.body);
+    const db = getDb();
+    const snapshot = await new DrizzleLineupSnapshotRepository(db).create({
+      gameId: req.params.gameId,
+      teamId: input.teamId,
+      playerIds: input.playerIds,
+      period: 1,
+      clockTimeSeconds: 0,
+    });
+    res.status(201).json(snapshot);
+  } catch (err) { next(err); }
+});
+
 router.post('/:gameId/lineups', async (req, res, next) => {
   try {
     const input = RecordSubstitutionInput.parse({ ...req.body, gameId: req.params.gameId });
