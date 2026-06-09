@@ -12,6 +12,8 @@ import {
   classifyShotZone,
   computeTeamEfficiency,
   computePer36,
+  classifyMatchupResult,
+  computeMatchupSummary,
 } from '../../domain/stat-calculators.js';
 
 const TREND_STAT_KEYS = ['pts', 'ast', 'reb', 'fgm', 'fga', 'stl', 'blk', 'to', 'pf', 'oreb', 'dreb'] as const;
@@ -365,42 +367,26 @@ router.get('/teams/:teamId/matchups', async (req: Request<{ teamId: string }>, r
     // Sort descending by date
     const sortedGames = [...filtered].sort((a, b) => b.date.getTime() - a.date.getTime());
 
-    let wins = 0;
-    let losses = 0;
-    let totalDiff = 0;
-    let totalTeamPts = 0;
-    let totalOppPts = 0;
-
     const gameRows = sortedGames.map((game) => {
       const isHome = game.homeTeamId === req.params.teamId;
       const teamScore = isHome ? (game.finalScoreHome ?? 0) : (game.finalScoreAway ?? 0);
       const oppScore = isHome ? (game.finalScoreAway ?? 0) : (game.finalScoreHome ?? 0);
-
-      const diff = teamScore - oppScore;
-      totalDiff += diff;
-      totalTeamPts += teamScore;
-      totalOppPts += oppScore;
-
-      const result: 'W' | 'L' | 'T' = teamScore > oppScore ? 'W' : teamScore < oppScore ? 'L' : 'T';
-      if (result === 'W') wins++;
-      else if (result === 'L') losses++;
-
       return {
         gameId: game.id,
         date: game.date.toISOString(),
         opponentLabel: game.notes ?? '',
         teamScore,
         oppScore,
-        result,
+        result: classifyMatchupResult(teamScore, oppScore),
       };
     });
 
-    const count = sortedGames.length;
+    const summary = computeMatchupSummary(gameRows);
     res.json({
-      record: { wins, losses },
-      avgScoreDiff: count > 0 ? totalDiff / count : 0,
-      avgPts: count > 0 ? totalTeamPts / count : 0,
-      avgOppPts: count > 0 ? totalOppPts / count : 0,
+      record: { wins: summary.wins, losses: summary.losses },
+      avgScoreDiff: summary.avgScoreDiff,
+      avgPts: summary.avgPts,
+      avgOppPts: summary.avgOppPts,
       games: gameRows,
     });
   } catch (err) { next(err); }
