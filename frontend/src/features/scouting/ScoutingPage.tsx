@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../../lib/api';
 import { RadarChart } from '../../components/charts/RadarChart';
+import { ShareSheet } from '../../components/ui/ShareSheet';
 
 function AIScoutingAssist() {
   const [prompt, setPrompt] = useState('');
@@ -107,6 +108,7 @@ export default function ScoutingPage() {
   const [isOpponent, setIsOpponent] = useState(false);
   const [skillInputs, setSkillInputs] = useState<Record<string, string>>(EMPTY_SKILLS);
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [shareSheetFor, setShareSheetFor] = useState<string | null>(null);
 
   const { data: reports = [], isLoading } = useQuery<Report[]>({
     queryKey: ['scouting-reports'],
@@ -136,7 +138,12 @@ export default function ScoutingPage() {
   const shareMutation = useMutation({
     mutationFn: ({ id, revoke }: { id: string; revoke: boolean }) =>
       api.post<{ shareToken: string | null }>(`/scouting-reports/${id}/share`, { revoke }),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['scouting-reports'] }),
+    onSuccess: (data, variables) => {
+      queryClient.invalidateQueries({ queryKey: ['scouting-reports'] });
+      if (!variables.revoke && data.shareToken) {
+        setShareSheetFor(variables.id + ':' + data.shareToken);
+      }
+    },
   });
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -265,31 +272,26 @@ export default function ScoutingPage() {
                     ))}
                   </div>
                 )}
-                <div className="flex items-center gap-2 pt-1">
-                  {r.shareToken ? (
-                    <>
-                      <button
-                        onClick={() => {
-                          const url = `${window.location.origin}/share/${r.shareToken}`;
-                          navigator.clipboard.writeText(url);
-                        }}
-                        className="text-xs px-3 py-1.5 bg-brand-50 dark:bg-brand-900/20 text-brand-700 dark:text-brand-300 hover:bg-brand-100 rounded-lg transition-colors"
-                      >
-                        Copy share link
-                      </button>
-                      <button
-                        onClick={() => shareMutation.mutate({ id: r.id, revoke: true })}
-                        className="text-xs px-3 py-1.5 bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-200 rounded-lg transition-colors"
-                      >
-                        Revoke link
-                      </button>
-                    </>
-                  ) : (
+                <div className="flex items-center gap-2 pt-1 flex-wrap">
+                  <button
+                    onClick={() => {
+                      if (r.shareToken) {
+                        setShareSheetFor(r.id + ':' + r.shareToken);
+                      } else {
+                        shareMutation.mutate({ id: r.id, revoke: false });
+                      }
+                    }}
+                    disabled={shareMutation.isPending}
+                    className="text-xs px-3 py-1.5 bg-brand-50 dark:bg-brand-900/20 text-brand-700 dark:text-brand-300 hover:bg-brand-100 rounded-lg transition-colors disabled:opacity-60"
+                  >
+                    Share
+                  </button>
+                  {r.shareToken && (
                     <button
-                      onClick={() => shareMutation.mutate({ id: r.id, revoke: false })}
+                      onClick={() => shareMutation.mutate({ id: r.id, revoke: true })}
                       className="text-xs px-3 py-1.5 bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-200 rounded-lg transition-colors"
                     >
-                      Generate share link
+                      Revoke link
                     </button>
                   )}
                   <a
@@ -308,6 +310,19 @@ export default function ScoutingPage() {
                     Delete
                   </button>
                 </div>
+
+                {/* ShareSheet for this report */}
+                {shareSheetFor && shareSheetFor.startsWith(r.id + ':') && (() => {
+                  const token = shareSheetFor.slice(r.id.length + 1);
+                  return (
+                    <ShareSheet
+                      title={r.title}
+                      url={`${window.location.origin}/scouting/share/${token}`}
+                      pdfUrl={`/api/v1/export/scouting/${r.id}/pdf`}
+                      onClose={() => setShareSheetFor(null)}
+                    />
+                  );
+                })()}
               </div>
             )}
           </div>

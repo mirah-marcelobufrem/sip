@@ -5,6 +5,7 @@ import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContai
 import { api } from '../../lib/api';
 import { ShotChart } from '../../components/charts/ShotChart';
 import { RadarChart } from '../../components/charts/RadarChart';
+import { ShareSheet } from '../../components/ui/ShareSheet';
 
 interface Player {
   id: string;
@@ -62,6 +63,7 @@ const SKILL_LABELS: Record<string, string> = {
 export default function PlayerCardPage() {
   const { teamId, playerId } = useParams<{ teamId: string; playerId: string }>();
   const [devInsights, setDevInsights] = useState<string | null>(null);
+  const [showShareSheet, setShowShareSheet] = useState(false);
 
   const insightsMutation = useMutation({
     mutationFn: () => api.post<{ insights: string }>(`/ai/development-insights/${playerId}`, {}),
@@ -168,6 +170,12 @@ export default function PlayerCardPage() {
               Export PDF
             </a>
             <button
+              onClick={() => setShowShareSheet(true)}
+              className="text-xs px-3 py-1.5 bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-200 rounded-lg"
+            >
+              Share
+            </button>
+            <button
               onClick={() => insightsMutation.mutate()}
               disabled={insightsMutation.isPending}
               className="text-xs px-3 py-1.5 bg-brand-50 dark:bg-brand-900/20 text-brand-700 dark:text-brand-300 hover:bg-brand-100 rounded-lg disabled:opacity-60"
@@ -176,6 +184,14 @@ export default function PlayerCardPage() {
             </button>
           </div>
         </div>
+        {showShareSheet && player && (
+          <ShareSheet
+            title={`${player.firstName} ${player.lastName} — Player Card`}
+            url={window.location.href}
+            pdfUrl={`/api/v1/export/player/${playerId}/card/pdf`}
+            onClose={() => setShowShareSheet(false)}
+          />
+        )}
       </div>
 
       {devInsights && (

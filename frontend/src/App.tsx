@@ -17,6 +17,7 @@ import AnalyticsDashboard from './features/analytics/AnalyticsDashboard';
 import SeasonBoxScorePage from './features/analytics/SeasonBoxScorePage';
 import OnOffPage from './features/analytics/OnOffPage';
 import ScoutingPage from './features/scouting/ScoutingPage';
+import PublicScoutingReportPage from './features/scouting/PublicScoutingReportPage';
 import TournamentsPage from './features/tournaments/TournamentsPage';
 import TournamentDetailPage from './features/tournaments/TournamentDetailPage';
 import PublicBracketPage from './features/tournaments/PublicBracketPage';
@@ -38,6 +39,7 @@ export default function App() {
         <Route path="/login" element={<LoginPage />} />
         <Route path="/register" element={<RegisterPage />} />
         <Route path="/bracket/:token" element={<PublicBracketPage />} />
+        <Route path="/scouting/share/:token" element={<PublicScoutingReportPage />} />
         <Route
           path="/"
           element={
