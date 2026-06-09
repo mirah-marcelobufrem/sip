@@ -4,6 +4,23 @@ import { getDb } from '../../infrastructure/database/connection.js';
 import { DrizzleScoutingReportRepository } from '../../infrastructure/database/repositories/scouting.repository.js';
 import { authenticate } from '../middleware/auth.middleware.js';
 
+// Public router — no auth required
+const publicRouter = Router();
+
+publicRouter.get('/share/:token', async (req, res, next) => {
+  try {
+    const db = getDb();
+    const repo = new DrizzleScoutingReportRepository(db);
+    const report = await repo.findByShareToken(req.params.token);
+    if (!report || report.visibility !== 'link') {
+      res.status(404).json({ error: 'Report not found', code: 'NOT_FOUND' }); return;
+    }
+    res.json(report);
+  } catch (err) { next(err); }
+});
+
+export { publicRouter as publicScoutingRouter };
+
 const router = Router();
 router.use(authenticate);
 
