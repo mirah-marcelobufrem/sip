@@ -3,6 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../../lib/api';
 import { CourtLocationPicker, type ShotStatType } from '../../components/charts/CourtLocationPicker';
+import { PossessionIndicator } from './PossessionIndicator';
 
 type StatType =
   | '2PM' | '2PA' | '3PM' | '3PA' | 'FTM' | 'FTA'
@@ -37,6 +38,9 @@ interface Game {
   format: string;
   finalScoreHome: number | null;
   finalScoreAway: number | null;
+  // Possession tracking (FIBA Sprint A1) — may be absent until the backend lands
+  currentPossessionTeamId?: string | null;
+  possessionArrowTeamId?: string | null;
 }
 
 const STAT_BUTTONS: { type: StatType; label: string; color: string }[] = [
@@ -179,6 +183,8 @@ export default function LiveRecordingPage() {
       setSelectedTeam(null);
       setPendingShot(null);
       queryClient.invalidateQueries({ queryKey: ['game-log', gameId] });
+      // Possession fields live on the game row — refresh after each event
+      queryClient.invalidateQueries({ queryKey: ['game', gameId] });
     },
   });
 
@@ -187,6 +193,7 @@ export default function LiveRecordingPage() {
     onSuccess: () => {
       undoStack.current = undoStack.current.slice(1);
       queryClient.invalidateQueries({ queryKey: ['game-log', gameId] });
+      queryClient.invalidateQueries({ queryKey: ['game', gameId] });
     },
   });
 
@@ -326,6 +333,14 @@ export default function LiveRecordingPage() {
           </div>
         </div>
       </div>
+
+      {/* Possession arrow indicator (data from the existing live game query) */}
+      <PossessionIndicator
+        currentPossessionTeamId={game?.currentPossessionTeamId}
+        possessionArrowTeamId={game?.possessionArrowTeamId}
+        homeTeamId={game?.homeTeamId ?? null}
+        awayTeamId={game?.awayTeamId ?? null}
+      />
 
       {/* Stat prompt banner */}
       {selectedStat && (
@@ -515,11 +530,13 @@ export default function LiveRecordingPage() {
         <CourtLocationPicker
           statType={pendingShot.statType}
           playerName={pendingShot.playerName}
-          onConfirm={(x, y) => {
+          onConfirm={(x, y, statType) => {
+            // statType is auto-derived from the tapped location (2pt vs 3pt),
+            // preserving made/missed from the original stat button.
             recordMutation.mutate({
               playerId: pendingShot.playerId,
               teamId: pendingShot.teamId,
-              statType: pendingShot.statType,
+              statType,
               xCourt: x,
               yCourt: y,
             });
