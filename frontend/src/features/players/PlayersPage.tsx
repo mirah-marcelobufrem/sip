@@ -52,8 +52,9 @@ function PlayerForm({
     >
       <div className="grid grid-cols-2 gap-3">
         <div>
-          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">First name</label>
+          <label htmlFor="add-player-first" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">First name</label>
           <input
+            id="add-player-first"
             value={firstName}
             onChange={(e) => setFirstName(e.target.value)}
             required
@@ -61,8 +62,9 @@ function PlayerForm({
           />
         </div>
         <div>
-          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Last name</label>
+          <label htmlFor="add-player-last" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Last name</label>
           <input
+            id="add-player-last"
             value={lastName}
             onChange={(e) => setLastName(e.target.value)}
             required

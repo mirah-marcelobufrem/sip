@@ -162,10 +162,11 @@ export default function GameSetupWizard({ teamId, teamName, onClose }: GameSetup
                 <p className="text-xs text-gray-400 mt-1">Home team is set by your roster.</p>
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                <label htmlFor="wizard-away-team" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                   Opponent / Away Team
                 </label>
                 <input
+                  id="wizard-away-team"
                   type="text"
                   value={awayTeamName}
                   onChange={(e) => setAwayTeamName(e.target.value)}
