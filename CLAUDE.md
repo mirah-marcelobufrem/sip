@@ -139,15 +139,16 @@ import type { Baz } from '@domain/entities/game.entity.js';  // correct
 
 ### frontend/src/
 
-- `features/` — page-level modules: auth, teams, players, games, live, analytics, scouting, tournaments, settings
-- `components/` — shared UI: AppShell, Toast, ConflictResolutionDialog
-  - `layout/AppShell.tsx` — top header bar + slide-in sidebar overlay. Layout is `flex-col h-screen` (header + main). Sidebar is `position: fixed`, slides in from the left with CSS `translate-x`. Toggle state is local `useState`; sidebar auto-closes on route change via `useEffect` watching `location.pathname`. Backdrop (`data-testid="nav-backdrop"`) closes the menu on click.
+- `features/` — page-level modules: auth, teams, players, games, live, analytics, scouting, tournaments, settings, opponents
+- `components/` — shared UI: AppShell, Toast, ConflictResolutionDialog, ShareSheet
+  - `layout/AppShell.tsx` — top header bar + slide-in sidebar overlay. Layout is `flex-col h-screen` (header + main). Sidebar is `position: fixed`, slides in from the left with CSS `translate-x`. Toggle state is local `useState`; sidebar auto-closes on route change via `useEffect` watching `location.pathname`. Backdrop (`data-testid="nav-backdrop"`) closes the menu on click. Sidebar includes "Opponents" nav item between Teams and Scouting.
   - `ui/ConflictResolutionDialog.tsx` — field-level conflict UI shown when the same entity was edited on two devices offline; props: `entityName`, `conflicts: { field, localValue, remoteValue, localUpdatedAt, remoteUpdatedAt }[]`, `onResolve`, `onDismiss`
+  - `ui/ShareSheet.tsx` — bottom-drawer (mobile) / popover (desktop) share component; props: `url`, `pdfUrl?`, `csvUrl?`; actions: Copy Link (2s "Copied!" feedback), WhatsApp, Email, Download PDF, Download CSV. Wired into ScoutingPage, PlayerCardPage, TournamentDetailPage.
   - `charts/courtLines.tsx` — `<CourtLines W H />` shared SVG court geometry; imported by both `ShotChart` and `CourtLocationPicker` — edit court geometry here only
   - `charts/ShotChart.tsx` — renders shot dots/heat on the half-court SVG; props: `shots[]`, `width?`, `height?`, `mode?: 'dots' | 'heat'`
   - `charts/CourtLocationPicker.tsx` — full-screen modal SVG for tapping a shot location during live recording; shown for shot stat types (`2PM/2PA/3PM/3PA`); exports `ShotStatType`
   - `charts/RadarChart.tsx` — pure SVG polygon radar; props: `axes: { label, value }[]`, `size?`, `color?`; values on 0–10 scale
-  - `charts/GameFlowChart.tsx` — Recharts `LineChart` wrapping score differential; props: `flowPoints[]`, `scoringRuns[]`, `homeLabel?`, `awayLabel?`
+  - `charts/GameFlowChart.tsx` — Recharts `LineChart` wrapping score differential; props: `flowPoints[]`, `scoringRuns[]`, `homeLabel?`, `awayLabel?`; scoring run bands rendered as amber `ReferenceArea`
 - `lib/api.ts` — the ONLY file that fetches from the backend; auto-refreshes token on 401
 - `lib/offlineQueue.ts` — IndexedDB queue for stat events recorded offline; flushed on `window.online`
 - `store/auth.store.ts` — Zustand + persist; `accessToken` is in-memory only (not persisted); only `refreshToken` + `user` survive a page reload — `refresh()` is called on 401 to silently get a new access token
@@ -162,15 +163,24 @@ import type { Baz } from '@domain/entities/game.entity.js';  // correct
 | --- | --- |
 | `/login` | LoginPage |
 | `/register` | RegisterPage |
+| `/forgot-password` | ForgotPasswordPage (no auth) |
+| `/reset-password` | ResetPasswordPage (no auth, reads `?token=`) |
 | `/bracket/:token` | PublicBracketPage (no auth) |
+| `/scouting/share/:token` | PublicScoutingReportPage (no auth) |
 | `/teams` | TeamsPage |
 | `/teams/:teamId/players` | PlayersPage |
 | `/teams/:teamId/players/:playerId` | PlayerCardPage |
+| `/teams/:teamId/players/compare` | PlayerComparisonPage (up to 4 players) |
 | `/teams/:teamId/games` | GamesPage |
+| `/teams/:teamId/season-box-score` | SeasonBoxScorePage |
+| `/teams/:teamId/analytics` | AnalyticsDashboard |
+| `/teams/:teamId/analytics/on-off` | OnOffPage |
 | `/games/:gameId/live` | LiveRecordingPage |
 | `/games/:gameId/box-score` | BoxScorePage |
+| `/games/:gameId/log` | GameLogPage |
 | `/games/:gameId/shots` | GameShotMapPage |
-| `/teams/:teamId/analytics` | AnalyticsDashboard |
+| `/opponent-teams` | OpponentTeamsPage |
+| `/opponent-teams/:id` | OpponentProfilePage |
 | `/scouting` | ScoutingPage |
 | `/tournaments` | TournamentsPage |
 | `/tournaments/:id` | TournamentDetailPage |
@@ -186,44 +196,79 @@ import type { Baz } from '@domain/entities/game.entity.js';  // correct
 | POST | `/auth/refresh` | — | Refresh access token |
 | POST | `/auth/logout` | ✓ | Revoke refresh token |
 | GET | `/auth/me` | ✓ | Current user profile |
+| POST | `/auth/forgot-password` | — | Request password reset (always 200) |
+| POST | `/auth/reset-password` | — | Consume reset token + set new password |
+| GET | `/game-templates` | ✓ | List game templates for user |
+| POST | `/game-templates` | ✓ | Create game template |
+| DELETE | `/game-templates/:id` | ✓ | Delete game template |
 | GET | `/teams` | ✓ | List teams for user |
 | POST | `/teams` | ✓ | Create team |
 | GET | `/teams/:id` | ✓ | Get team |
 | PUT | `/teams/:id` | ✓ | Update team |
 | DELETE | `/teams/:id` | ✓ | Delete team |
 | GET | `/teams/:id/members` | ✓ | List team members |
+| PUT | `/teams/:id/members/:userId` | ✓ OWNER | Change member role |
+| DELETE | `/teams/:id/members/:userId` | ✓ | Remove member (or self-leave) |
+| POST | `/teams/:id/invitations` | ✓ OWNER/COACH | Create invite token (logged to console) |
+| POST | `/invitations/accept` | — | Accept invite (joins team; returns `requiresAuth:true` if no session) |
 | GET | `/teams/:teamId/players` | ✓ | List players |
 | POST | `/teams/:teamId/players` | ✓ | Create player |
+| POST | `/teams/:teamId/players/import` | ✓ | CSV bulk import (`text/csv` body) |
 | GET | `/teams/:teamId/players/:id` | ✓ | Get player |
 | PUT | `/teams/:teamId/players/:id` | ✓ | Update player |
 | DELETE | `/teams/:teamId/players/:id` | ✓ | Delete player |
 | GET | `/teams/:teamId/games` | ✓ | List games |
 | POST | `/teams/:teamId/games` | ✓ | Create game |
 | GET | `/teams/:teamId/games/season-stats` | ✓ | Season aggregate stats |
-| GET | `/games/:gameId` | ✓ | Get game |
-| PATCH | `/games/:gameId` | ✓ | Update game |
-| POST | `/games/:gameId/start` | ✓ | Start game |
-| POST | `/games/:gameId/complete` | ✓ | Complete game |
-| POST | `/games/:gameId/events` | ✓ | Record stat event |
-| DELETE | `/games/:gameId/events/:eventId` | ✓ | Delete stat event |
-| POST | `/games/:gameId/lineups` | ✓ | Record lineup snapshot |
-| GET | `/games/:gameId/log` | ✓ | Event log |
-| GET | `/games/:gameId/box-score` | ✓ | Box score |
-| GET | `/games/:gameId/flow` | ✓ | Score flow |
-| GET | `/games/:gameId/lineups` | ✓ | Lineup snapshots |
-| GET | `/players/:playerId/shot-chart` | ✓ | Player shot chart |
-| GET | `/teams/:teamId/players/season-stats` | ✓ | Team season stats |
+| GET | `/teams/:teamId/players/season-stats` | ✓ | Team season stats (`?dateFrom`, `?dateTo`, `?per36=true`) |
+| GET | `/teams/:teamId/trend-stats` | ✓ | Per-game trend by stat (`?stat=pts&playerId=uuid`) |
+| GET | `/teams/:teamId/matchups` | ✓ | Matchup history vs opponent name (`?opponentName=`) |
+| GET | `/teams/:teamId/combo-stats` | ✓ | 2-man / 3-man combo +/- (`?size=2or3&minEvents=5`) |
 | GET | `/teams/:teamId/lineup-stats` | ✓ | Lineup analytics |
 | GET | `/teams/:teamId/on-off/:playerId` | ✓ | On/off analysis |
 | GET | `/teams/:teamId/efficiency` | ✓ | Efficiency metrics |
 | GET | `/teams/:teamId/players/:playerId/shot-chart` | ✓ | Player+team shot chart |
+| GET | `/games/:gameId` | ✓ | Get game |
+| PATCH | `/games/:gameId` | ✓ | Update game |
+| POST | `/games/:gameId/start` | ✓ | Start game |
+| POST | `/games/:gameId/complete` | ✓ | Complete game |
+| POST | `/games/:gameId/events` | ✓ | Record stat event (optional `insertAfterId`) |
+| PATCH | `/games/:gameId/events/:eventId` | ✓ OWNER/COACH | Update event (audit-logged to `stat_event_audits`) |
+| DELETE | `/games/:gameId/events/:eventId` | ✓ | Delete stat event |
+| POST | `/games/:gameId/lineups/initial` | ✓ | Record initial lineup (`{ teamId, playerIds[] }`) |
+| POST | `/games/:gameId/lineups` | ✓ | Record substitution lineup snapshot |
+| GET | `/games/:gameId/log` | ✓ | Event log (grouped by period) |
+| GET | `/games/:gameId/box-score` | ✓ | Box score |
+| GET | `/games/:gameId/flow` | ✓ | Score flow |
+| GET | `/games/:gameId/lineups` | ✓ | Lineup snapshots |
 | GET | `/games/:gameId/player-stats` | ✓ | Game player stats |
+| GET | `/players/:playerId/shot-chart` | ✓ | Player shot chart |
+| GET | `/players/:playerId/development` | ✓ | List development entries |
+| POST | `/players/:playerId/development` | ✓ | Create development entry |
+| PUT | `/players/:playerId/development/:entryId` | ✓ | Update development entry |
+| DELETE | `/players/:playerId/development/:entryId` | ✓ | Delete development entry |
+| GET | `/players/:playerId/development/chart` | ✓ | Entries grouped by metric (for charts) |
+| GET | `/players/:playerId/development/goals` | ✓ | List development goals |
+| POST | `/players/:playerId/development/goals` | ✓ | Create development goal |
+| PUT | `/players/:playerId/development/goals/:goalId` | ✓ | Update / mark achieved |
+| DELETE | `/players/:playerId/development/goals/:goalId` | ✓ | Delete development goal |
+| GET | `/opponent-teams` | ✓ | List opponent teams (with player count) |
+| POST | `/opponent-teams` | ✓ | Create opponent team |
+| GET | `/opponent-teams/:id` | ✓ | Get opponent team |
+| PUT | `/opponent-teams/:id` | ✓ | Update opponent team |
+| DELETE | `/opponent-teams/:id` | ✓ | Delete opponent team |
+| GET | `/opponent-teams/:id/players` | ✓ | List opponent players |
+| POST | `/opponent-teams/:id/players` | ✓ | Create opponent player |
+| PUT | `/opponent-teams/:id/players/:playerId` | ✓ | Update opponent player |
+| DELETE | `/opponent-teams/:id/players/:playerId` | ✓ | Delete opponent player |
+| GET | `/opponent-teams/:id/stats` | ✓ | Opponent tendency stats (stub — returns `{}`) |
 | GET | `/scouting-reports` | ✓ | List reports |
 | POST | `/scouting-reports` | ✓ | Create report |
+| GET | `/scouting-reports/share/:token` | — | Public read-only report (no auth) |
 | GET | `/scouting-reports/:id` | ✓ | Get report |
 | PUT | `/scouting-reports/:id` | ✓ | Update report |
 | DELETE | `/scouting-reports/:id` | ✓ | Delete report |
-| POST | `/scouting-reports/:id/share` | ✓ | Share report |
+| POST | `/scouting-reports/:id/share` | ✓ | Share report (or `{ revoke:true }` to revoke) |
 | GET | `/tournaments` | ✓ | List tournaments |
 | POST | `/tournaments` | ✓ | Create tournament |
 | GET | `/tournaments/:id` | ✓ | Get tournament |
@@ -232,6 +277,7 @@ import type { Baz } from '@domain/entities/game.entity.js';  // correct
 | GET | `/tournaments/:id/bracket` | ✓ | Bracket |
 | PATCH | `/tournaments/:id/slots/:slotId` | ✓ | Update bracket slot |
 | GET | `/tournaments/:id/standings` | ✓ | Standings |
+| GET | `/tournaments/:id/leaders` | ✓ | Top-5 leaders per stat category (PTS/REB/AST/STL) |
 | POST | `/tournaments/:id/share` | ✓ | Share tournament |
 | POST | `/ai/game-recap/:gameId` | ✓ | AI game recap |
 | POST | `/ai/scouting-assist` | ✓ | AI scouting assistant |
@@ -289,8 +335,19 @@ import type { Baz } from '@domain/entities/game.entity.js';  // correct
 - **Skill ratings** in scouting reports are stored as JSON under the key `skillRatings`. The 10 canonical keys are: `scoring`, `ballHandling`, `passing`, `offBallMovement`, `defenseOnBall`, `defenseHelp`, `rebounding`, `athleticism`, `basketballIq`, `clutch` (all 0–10). Never add new keys without updating `SKILL_LABELS` in both `ScoutingPage.tsx` and `PlayerCardPage.tsx`.
 - **Box-score endpoint** (`GET /games/:gameId/box-score`) returns per-player rows that include `playerName`, `jerseyNumber`, `teamId`, and `isHomeTeam`. Names are resolved by joining both `players` (own roster) and `opponent_players` tables. Always use these fields — never display raw `playerId` UUIDs.
 - **LiveRecordingPage** tracks both teams' lineups independently. The foul BONUS threshold is 5 fouls per quarter (`FOUL_BONUS_THRESHOLD = 5`). Substitutions go through `POST /games/:gameId/lineups`; period advance through `PATCH /games/:gameId`.
-- **AnalyticsDashboard** has three tabs: Season (leaders table + trend chart + efficiency metrics), Lineups (top 5-man combos from `/teams/:teamId/lineup-stats`), and Game Flow (game selector + `GameFlowChart` from `/games/:gameId/flow`). Lineup data only loads when the Lineups tab is active (`enabled: activeTab === 'lineup'`).
-- **PlayersPage** edit modal calls `PUT /teams/:teamId/players/:id` with full player fields including `status`. Valid status values: `active`, `injured`, `hidden`, `transferred`.
+- **AnalyticsDashboard** has four tabs: Season (leaders table + per-game trend chart + efficiency metrics + season box score link), Lineups (top 5-man combos + 2/3-man combo toggle from `/teams/:teamId/lineup-stats` and `/teams/:teamId/combo-stats`), Game Flow (game selector + `GameFlowChart` from `/games/:gameId/flow`), and AI Insights (`AiInsightsTab` — opponent + situation inputs → `POST /ai/lineup-recommendation/:teamId`). Lineup data only loads when the Lineups tab is active (`enabled: activeTab === 'lineup'`).
+- **PlayersPage** edit modal calls `PUT /teams/:teamId/players/:id` with full player fields including `status`. Valid status values: `active`, `injured`, `hidden`, `transferred`. CSV import button triggers hidden file input → `POST /teams/:teamId/players/import` with `Content-Type: text/csv`.
+- **PlayerCardPage** (`/teams/:teamId/players/:playerId`): 3-tab development section (Dev Log / Trends / Goals) below the main card. Dev Log: date+metric+value+notes entries. Trends: per-metric Recharts `LineChart` from `/players/:playerId/development/chart`. Goals: target metric/value/date, mark-achieved toggle. All three tabs are independent TanStack queries.
+- **PlayerComparisonPage** (`/teams/:teamId/players/compare`): chips-style multi-selector (up to 4). 11-stat table (GP, PPG, RPG, APG, SPG, BPG, FG%, eFG%, 3P%, TS%, MIN/G); best-value cell highlighted green. Data from `/teams/:teamId/players/season-stats`.
+- **GameSetupWizard** (`GamesPage.tsx`): 4-step modal: Step 1 (Teams — opponent name + template selector), Step 2 (Format — periods/duration/foul limits), Step 3 (Starting Lineup — home team active players as toggle buttons, max 5; posts to `/games/:id/lineups/initial` after creation, skip is allowed), Step 4 (Confirm & Create — navigates to `/games/:id/live`).
+- **GameLogPage** (`/games/:gameId/log`): event log grouped by period. Delete with confirmation dialog. Linked from `BoxScorePage` header. Quick-edit (beyond delete) is deferred to `ActionLogModal` in Sprint S14.
+- **SeasonBoxScorePage** (`/teams/:teamId/season-box-score`): sortable table with Per-Game Average / Season Totals toggle + date range filters + Per-36 toggle. Linked from AnalyticsDashboard Season tab.
+- **OnOffPage** (`/teams/:teamId/analytics/on-off`): player selector dropdown, On/Off split table with PTS / OPP PTS / +/- columns and a Delta row.
+- **OpponentTeamsPage** (`/opponent-teams`): CRUD list with create/edit modal (name, league, notes). Row click navigates to profile. "Add Opponent Team" modal heading; submit button is "Add Team".
+- **OpponentProfilePage** (`/opponent-teams/:id`): team header + players table. Add/Edit per player (jersey, position, notes). Two independent TanStack queries (team detail + players).
+- **stat_events `seq` column** (double precision): backfilled from `created_at` epoch. `POST /events` accepts optional `insertAfterId` to midpoint-insert between two events; precision guard prevents collisions. Never compute `seq` inline — always derived from sibling rows.
+- **`computePer36(box)`** in `stat-calculators.ts`: normalises all counting stats to 36 minutes of play. Returns `null` if `< 30` seconds played. Used by season stats API when `?per36=true`.
+- **Invite token flow**: `POST /teams/:id/invitations` generates a 7-day token logged to console (no SMTP). `POST /invitations/accept` joins the team or returns `{ requiresAuth: true }` if the caller has no session. Email delivery is not yet implemented.
 
 ## RBAC
 
@@ -342,12 +399,29 @@ Relevant agents for this project and their typical use:
 
 When orchestrating complex tasks, follow the standard chains from the global CLAUDE.md (PM → Backend → Frontend → QA → DevOps, etc.) using these global agents.
 
+## ESLint (v9 flat config)
+
+Both packages use ESLint 9 flat config — `eslint.config.js` at the package root using `typescript-eslint` recommended preset. The `--ext` flag has been removed from all lint scripts (invalid in ESLint 9). Pre-existing violations are set to `warn` so CI is not blocked; new code should produce zero warnings.
+
+```bash
+cd backend  && npm run lint   # uses backend/eslint.config.js
+cd frontend && npm run lint   # uses frontend/eslint.config.js
+```
+
 ## GitFlow
 
 ```text
 main ← release/* ← develop ← feature/*
 ```
 
-Current state: all 6 waves shipped. `release/1.0.0` was merged to `main` (tagged `v1.0.0`) and back-merged to `develop`. Active work happens on `develop` or a new `feature/*` branch.
+Current state: Phase 1 complete. Released through `v1.4.1` (tagged on `main`). All releases back-merged into `develop`. Active work starts from a new `feature/*` branch off `develop`.
+
+| Release | Sprints | Key content |
+| --- | --- | --- |
+| v1.1.0 | S01 | Game Setup Wizard, Period Advance Dialog, Season Box Score, Game Log, PATCH events, seq-based insertion, game templates |
+| v1.2.0 | S02 | Trend stats, per-36, matchup history, combo stats, OnOff page, scoring run bands |
+| v1.3.0 | S03 | ShareSheet, AI Lineup tab, PublicScoutingReportPage, tournament leaders |
+| v1.4.0 | S04 | Development tracking, opponent teams/profiles, team member management, player comparison, forgot/reset password, CSV import |
+| v1.4.1 | debt | ESLint 9 flat config, Drizzle snapshot regeneration, GameSetupWizard Step 3 wiring, CI/CD fixes, 30 Playwright E2E tests |
 
 Never commit directly to `main` or `develop`.

@@ -11,11 +11,16 @@ local/
 node_modules/
 dist/
 
-# Agent artifacts
+# Claude Code — agent artifacts and local permission settings
 .claude/agents/
+.claude/settings.json
 
 # nginx generated config — run: bash nginx/generate-nginx-conf.sh
 nginx/nginx.conf
 
 # Local files
 .work/
+
+# Playwright test output
+playwright-report/
+test-results/

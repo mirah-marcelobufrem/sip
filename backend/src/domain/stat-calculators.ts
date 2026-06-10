@@ -258,3 +258,48 @@ export function detectScoringRuns(
 
   return runs;
 }
+
+export function classifyMatchupResult(teamScore: number, oppScore: number): 'W' | 'L' | 'T' {
+  if (teamScore > oppScore) return 'W';
+  if (teamScore < oppScore) return 'L';
+  return 'T';
+}
+
+export interface MatchupGameRow {
+  teamScore: number;
+  oppScore: number;
+}
+
+export interface MatchupSummary {
+  wins: number;
+  losses: number;
+  avgScoreDiff: number;
+  avgPts: number;
+  avgOppPts: number;
+}
+
+export function computeMatchupSummary(rows: MatchupGameRow[]): MatchupSummary {
+  let wins = 0;
+  let losses = 0;
+  let totalDiff = 0;
+  let totalTeamPts = 0;
+  let totalOppPts = 0;
+
+  for (const r of rows) {
+    const result = classifyMatchupResult(r.teamScore, r.oppScore);
+    if (result === 'W') wins++;
+    else if (result === 'L') losses++;
+    totalDiff += r.teamScore - r.oppScore;
+    totalTeamPts += r.teamScore;
+    totalOppPts += r.oppScore;
+  }
+
+  const count = rows.length;
+  return {
+    wins,
+    losses,
+    avgScoreDiff: count > 0 ? totalDiff / count : 0,
+    avgPts: count > 0 ? totalTeamPts / count : 0,
+    avgOppPts: count > 0 ? totalOppPts / count : 0,
+  };
+}
