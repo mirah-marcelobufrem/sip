@@ -36,6 +36,13 @@
       "when": 1781009887669,
       "tag": "0004_familiar_goblin_queen",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1781112010803,
+      "tag": "0005_smooth_vulture",
+      "breakpoints": true
     }
   ]
 }

@@ -139,7 +139,7 @@ import type { Baz } from '@domain/entities/game.entity.js';  // correct
 
 ### frontend/src/
 
-- `features/` — page-level modules: auth, teams, players, games, live, analytics, scouting, tournaments, settings, opponents
+- `features/` — page-level modules: auth, teams, players, games, live, analytics, scouting, tournaments, settings. There is no `opponents/` module — `OpponentTeamsPage.tsx` and `OpponentProfilePage.tsx` live in `features/teams/`.
 - `components/` — shared UI: AppShell, Toast, ConflictResolutionDialog, ShareSheet
   - `layout/AppShell.tsx` — top header bar + slide-in sidebar overlay. Layout is `flex-col h-screen` (header + main). Sidebar is `position: fixed`, slides in from the left with CSS `translate-x`. Toggle state is local `useState`; sidebar auto-closes on route change via `useEffect` watching `location.pathname`. Backdrop (`data-testid="nav-backdrop"`) closes the menu on click. Sidebar includes "Opponents" nav item between Teams and Scouting.
   - `ui/ConflictResolutionDialog.tsx` — field-level conflict UI shown when the same entity was edited on two devices offline; props: `entityName`, `conflicts: { field, localValue, remoteValue, localUpdatedAt, remoteUpdatedAt }[]`, `onResolve`, `onDismiss`
@@ -151,7 +151,7 @@ import type { Baz } from '@domain/entities/game.entity.js';  // correct
   - `charts/GameFlowChart.tsx` — Recharts `LineChart` wrapping score differential; props: `flowPoints[]`, `scoringRuns[]`, `homeLabel?`, `awayLabel?`; scoring run bands rendered as amber `ReferenceArea`
 - `lib/api.ts` — the ONLY file that fetches from the backend; auto-refreshes token on 401
 - `lib/offlineQueue.ts` — IndexedDB queue for stat events recorded offline; flushed on `window.online`
-- `store/auth.store.ts` — Zustand + persist; `accessToken` is in-memory only (not persisted); only `refreshToken` + `user` survive a page reload — `refresh()` is called on 401 to silently get a new access token
+- `store/auth.store.ts` — Zustand + persist; `accessToken` is in-memory only (not persisted); only `refreshToken` + `user` survive a page reload — `refresh()` is called on 401 to silently get a new access token. Concurrent `refresh()` calls are deduped via a module-level shared promise. `_hasHydrated` is set by `onRehydrateStorage`; the `RequireAuth` guard in `App.tsx` renders nothing until hydration completes and treats `user || refreshToken` (not `accessToken`) as authenticated.
 - `store/theme.store.ts` — Zustand + persist; holds theme (system/light/dark); call `initTheme()` on app boot
 - `hooks/useSettings.ts` — TanStack Query wrapper for GET/PUT /settings; `UserPreferences` type (language, units, theme, game format, foul limits, shot chart, opponent tracking, notification toggles, colors)
 - `hooks/usePushNotifications.ts` — VAPID subscription lifecycle (request permission → subscribe → save to backend); `PushStatus: 'unsupported' | 'denied' | 'granted' | 'prompt' | 'subscribing'`
@@ -191,8 +191,8 @@ import type { Baz } from '@domain/entities/game.entity.js';  // correct
 
 | Method | Path | Auth | Description |
 | --- | --- | --- | --- |
-| POST | `/auth/register` | — | Register (rate-limited) |
-| POST | `/auth/login` | — | Login (rate-limited) |
+| POST | `/auth/register` | — | Register (rate-limited in production only) |
+| POST | `/auth/login` | — | Login (rate-limited in production only) |
 | POST | `/auth/refresh` | — | Refresh access token |
 | POST | `/auth/logout` | ✓ | Revoke refresh token |
 | GET | `/auth/me` | ✓ | Current user profile |
@@ -324,7 +324,7 @@ import type { Baz } from '@domain/entities/game.entity.js';  // correct
 
 ## Key Domain Rules
 
-- `stat-calculators.ts` is the single source of truth for ALL derived stats. Never compute stats inline in routes or components.
+- `stat-calculators.ts` is the single source of truth for ALL derived stats. Never compute stats inline in routes or components. This includes matchup logic: `classifyMatchupResult()` and `computeMatchupSummary()` live here, not in `analytics.routes.ts`.
 - **`fga` formula:** `fga = twopm + twopa + threepm + threepa` — made shots count as attempts. Do NOT use `twopa + threepa` (miss-only) which was a historic bug.
 - All DB migrations are Drizzle-managed (`npm run db:generate` → `npm run db:migrate`). Never write raw SQL migration files.
 - Every entity has `id UUID PK`, `created_at`, `updated_at`, `deleted_at` (soft delete).
@@ -344,8 +344,8 @@ import type { Baz } from '@domain/entities/game.entity.js';  // correct
 - **SeasonBoxScorePage** (`/teams/:teamId/season-box-score`): sortable table with Per-Game Average / Season Totals toggle + date range filters + Per-36 toggle. Linked from AnalyticsDashboard Season tab.
 - **OnOffPage** (`/teams/:teamId/analytics/on-off`): player selector dropdown, On/Off split table with PTS / OPP PTS / +/- columns and a Delta row.
 - **OpponentTeamsPage** (`/opponent-teams`): CRUD list with create/edit modal (name, league, notes). Row click navigates to profile. "Add Opponent Team" modal heading; submit button is "Add Team".
-- **OpponentProfilePage** (`/opponent-teams/:id`): team header + players table. Add/Edit per player (jersey, position, notes). Two independent TanStack queries (team detail + players).
-- **stat_events `seq` column** (double precision): backfilled from `created_at` epoch. `POST /events` accepts optional `insertAfterId` to midpoint-insert between two events; precision guard prevents collisions. Never compute `seq` inline — always derived from sibling rows.
+- **OpponentProfilePage** (`/opponent-teams/:id`): team header + players table. Add/Edit per player (jersey, position, notes). Two independent TanStack queries (team detail + players). Optional opponent-team fields (`logo`, `homeCourt`, `contactName`, `contactEmail`) accept `null` — Zod schemas use `.optional().nullable()`.
+- **stat_events `seq` column** (double precision): backfilled from `created_at` epoch. `POST /events` accepts optional `insertAfterId` to midpoint-insert between two events; precision guard prevents collisions. Never compute `seq` inline — always derived from sibling rows. The repository orders events by `period`, then `COALESCE(seq, epoch(created_at)*1000)`, then `created_at` — keep this ordering when adding queries over events.
 - **`computePer36(box)`** in `stat-calculators.ts`: normalises all counting stats to 36 minutes of play. Returns `null` if `< 30` seconds played. Used by season stats API when `?per36=true`.
 - **Invite token flow**: `POST /teams/:id/invitations` generates a 7-day token logged to console (no SMTP). `POST /invitations/accept` joins the team or returns `{ requiresAuth: true }` if the caller has no session. Email delivery is not yet implemented.
 
@@ -363,6 +363,7 @@ Roles per team: `OWNER > COACH > ASSISTANT > SCOUT > VIEWER`
 - Each test file mirrors its source: `src/application/auth/registerUser.ts` → `tests/unit/auth/registerUser.test.ts`
 - Run unit tests without Docker; integration tests require the `postgres` service
 - E2E tests live in `frontend/e2e/` and run via Playwright — excluded from Vitest via `vitest.config.ts`
+- E2E conventions: use `e2e/helpers.ts` (`createAndLogin(page)` registers a fresh user and lands on `/teams`; `setupTeam(page, name)` creates a team and returns its id). Generate a **unique email per test** (`Date.now()` + random suffix) — reusing one email across tests in a file causes flaky registration failures. Prefer role-based locators (`getByRole`) over text/index-based ones.
 - All mock IDs in tests must be valid UUIDs (e.g. `'00000000-0000-0000-0000-000000000001'`) — Zod uuid() validation runs inside use cases
 - Use factory functions (`makeUserRepo()`, `makeSettingsRepo()`) that return complete mock objects with `jest.fn()` stubs; pass `overrides` to customize per-test
 

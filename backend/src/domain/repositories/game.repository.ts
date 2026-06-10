@@ -15,6 +15,7 @@ export interface IStatEventRepository {
   findByGameAndPlayer(gameId: string, playerId: string): Promise<StatEvent[]>;
   findByGameAndTeam(gameId: string, teamId: string): Promise<StatEvent[]>;
   findByPlayer(playerId: string): Promise<StatEvent[]>;
+  findByLinkedAction(linkedActionId: string): Promise<StatEvent[]>;
   findShotEvents(filters: {
     playerId?: string;
     teamId?: string;

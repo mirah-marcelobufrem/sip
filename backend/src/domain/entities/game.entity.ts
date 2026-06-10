@@ -10,6 +10,33 @@ export type StatType =
   | 'PERIOD_START' | 'PERIOD_END'
   | 'TIMEOUT';
 
+export type LinkRole =
+  | 'rebound_after_miss'
+  | 'assist_after_made'
+  | 'turnover_after_steal'
+  | 'foul_drawn'
+  | 'ft_for_foul'
+  | 'to_after_offensive_foul'
+  | 'wave_sub_member';
+
+export interface PossessionState {
+  teamId: string | null;
+  arrowTeamId: string | null;
+  isPending: boolean; // true when waiting for rebound after last FT miss
+}
+
+export interface PossessionSequence {
+  id: string;
+  gameId: string;
+  period: number;
+  clockTimeSeconds: number;
+  teamId: string;
+  startActionId: string | null;
+  endActionId: string | null;
+  isOffensiveReboundContinuation: boolean;
+  createdAt: Date;
+}
+
 export interface Game {
   id: string;
   homeTeamId: string | null;
@@ -28,6 +55,8 @@ export interface Game {
   finalScoreHome: number | null;
   finalScoreAway: number | null;
   notes: string | null;
+  currentPossessionTeamId: string | null;
+  possessionArrowTeamId: string | null;
 }
 
 export interface StatEvent {
@@ -43,6 +72,9 @@ export interface StatEvent {
   yCourt: number | null;
   lineupSnapshotId: string | null;
   seq: number | null;
+  linkedActionId: string | null;
+  linkRole: LinkRole | null;
+  waveSubGroupId: string | null;
   createdAt: Date;
 }
 

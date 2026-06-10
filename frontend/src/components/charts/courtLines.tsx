@@ -3,6 +3,20 @@
 // Normalized: x ∈ [0,1] over 15 m, y ∈ [0,1] over 14 m.
 // Designed for H = W * 14/15 so all arcs render as true circles (rx = ry).
 
+// FIBA 3-point classification — pure function, mirrored by the backend (must agree).
+// Frame: normalized half-court coords with the basket at (0.5, 0.885), i.e. the
+// baseline at y = 1. x ∈ [0,1] over 15 m width, y ∈ [0,1] over 14 m depth.
+// Three-point when real distance from the basket exceeds 6.75 m, plus the
+// straight corner sections (x < 0.085 or x > 0.915 ⇒ always 3pt).
+// NOTE: <CourtLines> renders the basket at the TOP (y ≈ 0.113); callers using
+// tap coordinates from that rendering must pass (x, 1 - y).
+export function isThreePointArea(x: number, y: number): boolean {
+  if (x < 0.085 || x > 0.915) return true;
+  const dx = (x - 0.5) * 15;
+  const dy = (y - 0.885) * 14;
+  return Math.sqrt(dx * dx + dy * dy) > 6.75;
+}
+
 interface CourtLinesProps {
   W: number;
   H: number;
