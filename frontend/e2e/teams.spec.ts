@@ -41,7 +41,7 @@ test.describe('Teams', () => {
     await page.getByText('Members Modal Team').waitFor();
 
     const card = page.locator('div').filter({ hasText: 'Members Modal Team' }).first();
-    await card.getByText('Members').click();
+    await card.getByRole('button', { name: 'Members' }).click();
 
     // Modal heading should appear
     await expect(page.getByRole('heading', { name: 'Team Members' })).toBeVisible({ timeout: 8_000 });
