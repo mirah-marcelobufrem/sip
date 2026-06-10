@@ -24,11 +24,12 @@ function SettingRow({ label, description, children }: { label: string; descripti
   );
 }
 
-function Toggle({ checked, onChange }: { checked: boolean; onChange: (v: boolean) => void }) {
+function Toggle({ checked, onChange, label }: { checked: boolean; onChange: (v: boolean) => void; label?: string }) {
   return (
     <button
       role="switch"
       aria-checked={checked}
+      aria-label={label}
       onClick={() => onChange(!checked)}
       className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-1 ${checked ? 'bg-blue-600' : 'bg-gray-300 dark:bg-gray-600'}`}
     >
@@ -137,7 +138,7 @@ export default function SettingsPage() {
             />
           </SettingRow>
           <SettingRow label="Show advanced stats" description="eFG%, TS%, PER, USG% in box scores">
-            <Toggle checked={p.showAdvancedStats ?? false} onChange={(v) => patch({ showAdvancedStats: v })} />
+            <Toggle checked={p.showAdvancedStats ?? false} onChange={(v) => patch({ showAdvancedStats: v })} label="Show advanced stats" />
           </SettingRow>
         </div>
       </section>

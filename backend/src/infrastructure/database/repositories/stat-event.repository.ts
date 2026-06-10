@@ -21,7 +21,11 @@ export class DrizzleStatEventRepository implements IStatEventRepository {
       .select()
       .from(statEvents)
       .where(and(eq(statEvents.gameId, gameId), isNull(statEvents.deletedAt)))
-      .orderBy(statEvents.period, statEvents.clockTimeSeconds, statEvents.createdAt);
+      .orderBy(
+        asc(statEvents.period),
+        sql`COALESCE(${statEvents.seq}, EXTRACT(EPOCH FROM ${statEvents.createdAt}) * 1000) ASC`,
+        asc(statEvents.createdAt),
+      );
     return rows.map(this.toEntity);
   }
 

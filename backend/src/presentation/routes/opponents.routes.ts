@@ -10,10 +10,10 @@ router.use(authenticate);
 
 const TeamBody = z.object({
   name: z.string().min(1).max(200),
-  logo: z.string().optional(),
-  homeCourt: z.string().optional(),
-  contactName: z.string().optional(),
-  contactEmail: z.string().email().optional(),
+  logo: z.string().optional().nullable(),
+  homeCourt: z.string().optional().nullable(),
+  contactName: z.string().optional().nullable(),
+  contactEmail: z.string().email().optional().nullable(),
 });
 
 const PlayerBody = z.object({

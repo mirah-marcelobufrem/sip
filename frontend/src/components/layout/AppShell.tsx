@@ -99,7 +99,7 @@ export default function AppShell() {
                 }`
               }
             >
-              <span>{item.icon}</span>
+              <span aria-hidden="true">{item.icon}</span>
               {item.label}
             </NavLink>
           ))}

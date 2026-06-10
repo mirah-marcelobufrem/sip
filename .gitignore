@@ -20,3 +20,7 @@ nginx/nginx.conf
 
 # Local files
 .work/
+
+# Playwright test output
+playwright-report/
+test-results/
