@@ -22,7 +22,7 @@ const authLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: 'Too many requests', code: 'RATE_LIMITED' },
-  skip: () => process.env.NODE_ENV === 'test',
+  skip: () => process.env.NODE_ENV !== 'production',
 });
 
 router.post('/register', authLimiter, async (req, res, next) => {
