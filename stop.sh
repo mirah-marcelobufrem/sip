@@ -55,7 +55,7 @@ if $REMOVE_ALL; then
   step "Removing ALL volumes (including database data and uploads)"
   warn "This will permanently delete the PostgreSQL database and all uploaded files!"
   read -r -p "   Are you sure? [y/N] " confirm
-  if [[ "${confirm,,}" == "y" ]]; then
+  if [[ "$confirm" == [Yy] ]]; then
     docker volume rm \
       "${PROJECT}_postgres_data" \
       "${PROJECT}_uploads" \
