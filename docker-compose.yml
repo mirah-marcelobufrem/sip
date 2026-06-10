@@ -34,6 +34,10 @@ services:
       PORT: 3001
       NODE_ENV: development
       STORAGE_PATH: /app/uploads
+      # File-change events don't propagate through the macOS/Windows bind
+      # mount, so tsx watch never reloads; poll instead (chokidar env vars).
+      CHOKIDAR_USEPOLLING: "true"
+      CHOKIDAR_INTERVAL: "1000"
     volumes:
       - uploads:/app/uploads
       - ./backend:/app
