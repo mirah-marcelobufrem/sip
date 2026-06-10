@@ -30,7 +30,9 @@ import ResetPasswordPage from './features/auth/ResetPasswordPage';
 import PlayerComparisonPage from './features/players/PlayerComparisonPage';
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
-  const isAuthenticated = useAuthStore((s) => !!s.accessToken);
+  const hasHydrated = useAuthStore((s) => s._hasHydrated);
+  const isAuthenticated = useAuthStore((s) => !!(s.user || s.refreshToken));
+  if (!hasHydrated) return null;
   if (!isAuthenticated) return <Navigate to="/login" replace />;
   return <>{children}</>;
 }
