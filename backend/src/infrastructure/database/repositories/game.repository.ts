@@ -82,6 +82,8 @@ export class DrizzleGameRepository implements IGameRepository {
       finalScoreHome: row.finalScoreHome,
       finalScoreAway: row.finalScoreAway,
       notes: row.notes,
+      currentPossessionTeamId: row.currentPossessionTeamId,
+      possessionArrowTeamId: row.possessionArrowTeamId,
     };
   }
 }

@@ -5,6 +5,7 @@ export * from './players.schema.js';
 export * from './opponents.schema.js';
 export * from './games.schema.js';
 export * from './stat-events.schema.js';
+export * from './possessions.schema.js';
 export * from './lineup-snapshots.schema.js';
 export * from './scouting.schema.js';
 export * from './development.schema.js';

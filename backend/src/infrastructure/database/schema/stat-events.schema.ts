@@ -1,4 +1,4 @@
-import { doublePrecision, integer, jsonb, pgEnum, pgTable, real, text, timestamp, uuid } from 'drizzle-orm/pg-core';
+import { doublePrecision, integer, jsonb, pgEnum, pgTable, real, text, timestamp, uuid, type AnyPgColumn } from 'drizzle-orm/pg-core';
 import { games } from './games.schema.js';
 
 export const statTypeEnum = pgEnum('stat_type', [
@@ -25,6 +25,11 @@ export const statEvents = pgTable('stat_events', {
   yCourt: real('y_court'),
   lineupSnapshotId: uuid('lineup_snapshot_id'),
   seq: doublePrecision('seq'),
+  linkedActionId: uuid('linked_action_id').references((): AnyPgColumn => statEvents.id, {
+    onDelete: 'cascade',
+  }),
+  linkRole: text('link_role'),
+  waveSubGroupId: uuid('wave_sub_group_id'),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   deletedAt: timestamp('deleted_at', { withTimezone: true }),
 });

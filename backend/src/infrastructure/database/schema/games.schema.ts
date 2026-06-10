@@ -39,6 +39,8 @@ export const games = pgTable('games', {
   finalScoreAway: integer('final_score_away'),
   currentPeriod: integer('current_period').default(1).notNull(),
   currentClockSeconds: integer('current_clock_seconds'),
+  currentPossessionTeamId: uuid('current_possession_team_id').references(() => teams.id),
+  possessionArrowTeamId: uuid('possession_arrow_team_id').references(() => teams.id),
   status: gameStatusEnum('status').default('scheduled').notNull(),
   notes: text('notes'),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),

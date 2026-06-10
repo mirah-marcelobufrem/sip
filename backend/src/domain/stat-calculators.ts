@@ -1,4 +1,4 @@
-import type { StatEvent, StatType } from './entities/game.entity.js';
+import type { PossessionState, StatEvent, StatType } from './entities/game.entity.js';
 
 export interface PlayerBoxScore {
   playerId: string;
@@ -111,6 +111,121 @@ export function deriveStats(box: PlayerBoxScore): DerivedStats {
     astPerGame: box.ast / Math.max(box.gamesPlayed, 1),
     pts36, reb36, ast36,
   };
+}
+
+export interface PossessionChangeContext {
+  /** Opponent of the team that produced the event (null if unknown). */
+  opponentTeamId: string | null;
+  /** 1-based index of this free throw within its sequence. */
+  lastFtIndex: number;
+  /** Total free throws awarded in the sequence. */
+  totalFtsInSequence: number;
+}
+
+/**
+ * Pure possession-change resolver implementing BR-STAT-1.1–1.4.
+ * Returns the next PossessionState after `event` is recorded.
+ * The alternating-possession arrow is carried through unchanged.
+ */
+export function resolvePossessionChange(
+  event: Pick<StatEvent, 'statType' | 'teamId'>,
+  current: PossessionState,
+  context: PossessionChangeContext,
+): PossessionState {
+  const isLastFt = context.lastFtIndex >= context.totalFtsInSequence;
+
+  switch (event.statType) {
+    case '2PM':
+    case '3PM':
+      // Made field goal → possession switches to the opponent
+      return { teamId: context.opponentTeamId, arrowTeamId: current.arrowTeamId, isPending: false };
+    case 'DREB':
+      // Defensive rebound → possession switches to the rebounding team
+      return { teamId: event.teamId, arrowTeamId: current.arrowTeamId, isPending: false };
+    case 'OREB':
+      // Offensive rebound → same possession continues (BR-STAT-1.3);
+      // also resolves a pending last-FT-miss state
+      return { teamId: current.teamId, arrowTeamId: current.arrowTeamId, isPending: false };
+    case 'TO':
+      // Turnover → possession switches to the non-offending team
+      return { teamId: context.opponentTeamId, arrowTeamId: current.arrowTeamId, isPending: false };
+    case 'STL':
+      // Steal → possession switches to the stealing team
+      return { teamId: event.teamId, arrowTeamId: current.arrowTeamId, isPending: false };
+    case 'FTM':
+      // Last FT made → switch to opponent; non-last FT → no change
+      return isLastFt
+        ? { teamId: context.opponentTeamId, arrowTeamId: current.arrowTeamId, isPending: false }
+        : current;
+    case 'FTA':
+      // Last FT missed → wait for the rebound before resolving possession
+      return isLastFt ? { ...current, isPending: true } : current;
+    case 'PERIOD_START':
+      // Initial possession comes from the jump-ball / arrow selection (UI picks)
+      return {
+        teamId: event.teamId ?? current.teamId,
+        arrowTeamId: current.arrowTeamId,
+        isPending: false,
+      };
+    default:
+      // 2PA/3PA (await rebound), AST, BLK, DFD, fouls, SUB_IN/OUT,
+      // PERIOD_END, TIMEOUT → no possession change
+      return current;
+  }
+}
+
+/**
+ * FIBA 3-point area test — SPEC FRAME ONLY.
+ *
+ * Coordinate frames (both normalized 0–1 over a 15 m × 14 m half-court):
+ * - SPEC frame (this function): baseline at y=1, basket center at (0.5, 0.885).
+ * - STORAGE frame (stat_events.xCourt/yCourt, classifyShotZone, frontend
+ *   submissions): baseline at y=0, basket center at (0.5, 0.113).
+ * The two frames are mirror images: ySpec = 1 - yStorage.
+ *
+ * This is the single source of the 3pt geometry (pure spec formula).
+ * Anything operating on stored/submitted coordinates must go through the
+ * storage-frame adapter below — never call this directly with xCourt/yCourt.
+ *
+ * Three-point if real distance from the basket exceeds 6.75 m, plus the
+ * corner-3 straight sections (x < 0.085 or x > 0.915) at any depth.
+ */
+export function isThreePointArea(x: number, y: number): boolean {
+  if (x < 0.085 || x > 0.915) return true;
+  const dx = (x - 0.5) * 15;
+  const dy = (y - 0.885) * 14;
+  return Math.sqrt(dx * dx + dy * dy) > 6.75;
+}
+
+/**
+ * STORAGE-frame adapter for isThreePointArea. Takes xCourt/yCourt exactly as
+ * stored in stat_events (basket at (0.5, 0.113), baseline at y=0) and mirrors
+ * y into the spec frame before evaluating the pure geometry.
+ */
+export function isThreePointAreaCourt(xCourt: number, yCourt: number): boolean {
+  return isThreePointArea(xCourt, 1 - yCourt);
+}
+
+/**
+ * BR-STAT-9.6 — FTs awarded for a shooting foul: 3 if the shot came from the
+ * 3pt area. Inputs are STORAGE-frame xCourt/yCourt (as submitted/stored).
+ */
+export function getFTCountForShootingFoul(xCourt: number, yCourt: number): 2 | 3 {
+  return isThreePointAreaCourt(xCourt, yCourt) ? 3 : 2;
+}
+
+/** Annotates each event with the ids of events that reference it as their linked parent. */
+export function attachLinkedChildren<T extends { id: string; linkedActionId: string | null }>(
+  events: T[],
+): (T & { linkedChildren: string[] })[] {
+  const childrenByParent = new Map<string, string[]>();
+  for (const e of events) {
+    if (!e.linkedActionId) continue;
+    const list = childrenByParent.get(e.linkedActionId) ?? [];
+    list.push(e.id);
+    childrenByParent.set(e.linkedActionId, list);
+  }
+  return events.map((e) => ({ ...e, linkedChildren: childrenByParent.get(e.id) ?? [] }));
 }
 
 export function classifyShotZone(x: number, y: number): string {
