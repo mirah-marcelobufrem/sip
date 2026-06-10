@@ -20,10 +20,45 @@ const router = Router();
 
 router.use(authenticate);
 
+// Verify the caller is a member of the game's home team (any role).
+// Games without a homeTeamId skip the check, matching the PATCH route.
+async function checkGameMembership(
+  db: ReturnType<typeof getDb>,
+  userId: string,
+  gameId: string,
+): Promise<'not_found' | 'forbidden' | 'ok'> {
+  const game = await new DrizzleGameRepository(db).findById(gameId);
+  if (!game) return 'not_found';
+  if (!game.homeTeamId) return 'ok';
+
+  const roleRows = await db
+    .select()
+    .from(userTeamRoles)
+    .where(
+      and(
+        eq(userTeamRoles.userId, userId),
+        eq(userTeamRoles.teamId, game.homeTeamId),
+      ),
+    )
+    .limit(1);
+  return roleRows.length > 0 ? 'ok' : 'forbidden';
+}
+
 router.post('/:gameId/events', async (req, res, next) => {
   try {
-    const { insertAfterId, ...bodyRest } = req.body as Record<string, unknown>;
     const db = getDb();
+
+    const membership = await checkGameMembership(db, req.userId, req.params.gameId);
+    if (membership === 'not_found') {
+      res.status(404).json({ error: 'Game not found', code: 'NOT_FOUND' });
+      return;
+    }
+    if (membership === 'forbidden') {
+      res.status(403).json({ error: 'Insufficient permissions', code: 'FORBIDDEN' });
+      return;
+    }
+
+    const { insertAfterId, ...bodyRest } = req.body as Record<string, unknown>;
     const repo = new DrizzleStatEventRepository(db);
 
     let computedSeq: number | undefined;
@@ -88,6 +123,17 @@ router.post('/:gameId/events', async (req, res, next) => {
 router.delete('/:gameId/events/:eventId', async (req, res, next) => {
   try {
     const db = getDb();
+
+    const membership = await checkGameMembership(db, req.userId, req.params.gameId);
+    if (membership === 'not_found') {
+      res.status(404).json({ error: 'Game not found', code: 'NOT_FOUND' });
+      return;
+    }
+    if (membership === 'forbidden') {
+      res.status(403).json({ error: 'Insufficient permissions', code: 'FORBIDDEN' });
+      return;
+    }
+
     const { deletedIds } = await deleteStatEvent(
       { gameId: req.params.gameId, eventId: req.params.eventId },
       new DrizzleStatEventRepository(db),
