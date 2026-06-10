@@ -5,10 +5,12 @@ import { getDb } from '../../infrastructure/database/connection.js';
 import { DrizzleGameRepository } from '../../infrastructure/database/repositories/game.repository.js';
 import { DrizzleStatEventRepository } from '../../infrastructure/database/repositories/stat-event.repository.js';
 import { DrizzleLineupSnapshotRepository } from '../../infrastructure/database/repositories/lineup-snapshot.repository.js';
+import { DrizzlePossessionSequenceRepository } from '../../infrastructure/database/repositories/possession.repository.js';
 import { recordStatEvent, RecordStatEventInput } from '../../application/games/recordStatEvent.js';
 import { recordSubstitution, RecordSubstitutionInput } from '../../application/games/recordSubstitution.js';
+import { deleteStatEvent } from '../../application/games/deleteStatEvent.js';
 import { authenticate } from '../middleware/auth.middleware.js';
-import { aggregatePlayerEvents, deriveStats, detectScoringRuns, buildGameFlowPoints } from '../../domain/stat-calculators.js';
+import { aggregatePlayerEvents, attachLinkedChildren, deriveStats, detectScoringRuns, buildGameFlowPoints } from '../../domain/stat-calculators.js';
 import { players as playersTable } from '../../infrastructure/database/schema/players.schema.js';
 import { opponentPlayers as opponentPlayersTable } from '../../infrastructure/database/schema/opponents.schema.js';
 import { statEventAudits } from '../../infrastructure/database/schema/stat-events.schema.js';
@@ -74,6 +76,8 @@ router.post('/:gameId/events', async (req, res, next) => {
       input,
       repo,
       new DrizzleLineupSnapshotRepository(db),
+      new DrizzleGameRepository(db),
+      new DrizzlePossessionSequenceRepository(db),
     );
     res.status(201).json(event);
   } catch (err) {
@@ -84,14 +88,11 @@ router.post('/:gameId/events', async (req, res, next) => {
 router.delete('/:gameId/events/:eventId', async (req, res, next) => {
   try {
     const db = getDb();
-    const repo = new DrizzleStatEventRepository(db);
-    const event = await repo.findById(req.params.eventId);
-    if (!event || event.gameId !== req.params.gameId) {
-      res.status(404).json({ error: 'Event not found', code: 'NOT_FOUND' });
-      return;
-    }
-    await repo.softDelete(req.params.eventId);
-    res.status(204).send();
+    const { deletedIds } = await deleteStatEvent(
+      { gameId: req.params.gameId, eventId: req.params.eventId },
+      new DrizzleStatEventRepository(db),
+    );
+    res.json({ deletedIds });
   } catch (err) {
     next(err);
   }
@@ -221,7 +222,7 @@ router.get('/:gameId/log', async (req, res, next) => {
   try {
     const db = getDb();
     const events = await new DrizzleStatEventRepository(db).findByGame(req.params.gameId);
-    res.json(events);
+    res.json(attachLinkedChildren(events));
   } catch (err) {
     next(err);
   }

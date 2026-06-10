@@ -66,6 +66,14 @@ export class DrizzleStatEventRepository implements IStatEventRepository {
     return rows.map(this.toEntity);
   }
 
+  async findByLinkedAction(linkedActionId: string): Promise<StatEvent[]> {
+    const rows = await this.db
+      .select()
+      .from(statEvents)
+      .where(and(eq(statEvents.linkedActionId, linkedActionId), isNull(statEvents.deletedAt)));
+    return rows.map(this.toEntity);
+  }
+
   async findByGameAndTeam(gameId: string, teamId: string): Promise<StatEvent[]> {
     const rows = await this.db
       .select()
@@ -145,6 +153,9 @@ export class DrizzleStatEventRepository implements IStatEventRepository {
       yCourt: row.yCourt,
       lineupSnapshotId: row.lineupSnapshotId,
       seq: row.seq,
+      linkedActionId: row.linkedActionId,
+      linkRole: row.linkRole as StatEvent['linkRole'],
+      waveSubGroupId: row.waveSubGroupId,
       createdAt: row.createdAt,
     };
   }

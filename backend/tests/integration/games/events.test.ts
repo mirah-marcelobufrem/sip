@@ -117,7 +117,7 @@ describe('POST /api/v1/games/:gameId/events', () => {
 });
 
 describe('DELETE /api/v1/games/:gameId/events/:eventId', () => {
-  it('soft deletes an event and returns 204', async () => {
+  it('soft deletes an event and returns the deleted ids', async () => {
     const token = await registerAndLogin('delete');
     const { gameId } = await createTeamAndGame(token);
 
@@ -130,7 +130,8 @@ describe('DELETE /api/v1/games/:gameId/events/:eventId', () => {
     const deleteRes = await request(app)
       .delete(`/api/v1/games/${gameId}/events/${eventId}`)
       .set('Authorization', `Bearer ${token}`);
-    expect(deleteRes.status).toBe(204);
+    expect(deleteRes.status).toBe(200);
+    expect(deleteRes.body.deletedIds).toEqual([eventId]);
 
     // Event should no longer appear in the log
     const logRes = await request(app)
