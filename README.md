@@ -75,7 +75,7 @@ Basketball intelligence app — live stat tracking, player & opponent scouting, 
 | Container | Docker Compose (dev) + docker-compose.prod.yml (production) |
 | Proxy | nginx (production, with Let's Encrypt SSL) |
 | CI/CD | GitHub Actions — runs on every push; E2E auto-triggers on `develop`/`feature/*`/`main` |
-| E2E tests | Playwright (30 tests across auth, navigation, teams, players, games, opponents) |
+| E2E tests | Playwright (30 tests across auth, forgot-password, navigation, teams, players, games, box score, opponents, settings/account) |
 
 ## Quick Start (Docker Desktop)
 
@@ -90,8 +90,8 @@ App is available at:
 
 - Frontend: <http://localhost:5173>
 - Backend API: <http://localhost:3001/api/v1>
-- Drizzle Studio: <http://localhost:4983>
 - Health check: <http://localhost:3001/health>
+- Drizzle Studio: run `cd backend && npm run db:studio` separately → <http://localhost:4983> (not started by Docker)
 
 > `start.sh` polls postgres health, builds with `--no-cache` when `--build` is passed, and waits up to 3 minutes for the backend before printing a ready banner. Use `stop.sh --clean-all` to wipe everything including the database volume.
 
@@ -206,7 +206,7 @@ domain/ → application/ → infrastructure/ → presentation/
 ```
 
 - **`domain/`** — entities, repository interfaces, `stat-calculators.ts` (all derived stats). Zero external imports.
-- **`application/`** — one use case per file, domain-only imports, dependencies injected as parameters. Every use case calls `Schema.parse()` internally so Zod validation runs regardless of the caller.
+- **`application/`** — dedicated use-case files for auth and live game recording (one exported async function per file, domain-only imports, dependencies injected as parameters); other business logic currently lives inline in route files. Every use case calls `Schema.parse()` internally so Zod validation runs regardless of the caller.
 - **`infrastructure/`** — Drizzle schema + repositories, auth (JWT/bcrypt), AI client, Puppeteer PDF, Web Push service.
 - **`presentation/`** — Express routes, auth middleware (`req.userId`, `req.userRole`), error middleware.
 
