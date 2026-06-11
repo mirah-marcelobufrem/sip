@@ -2,13 +2,17 @@ import { useState, useCallback, useRef, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../../lib/api';
-import { CourtLocationPicker, type ShotStatType } from '../../components/charts/CourtLocationPicker';
+import { CourtLocationPicker } from '../../components/charts/CourtLocationPicker';
 import { PossessionIndicator } from './PossessionIndicator';
 
 type StatType =
   | '2PM' | '2PA' | '3PM' | '3PA' | 'FTM' | 'FTA'
   | 'OREB' | 'DREB' | 'AST' | 'TO' | 'STL' | 'BLK'
   | 'PF' | 'TF';
+
+// 'SHOT' is a UI-only sentinel for the consolidated shot button — the actual
+// 2PM/2PA/3PM/3PA stat type is derived later from the court tap + MADE/MISS choice.
+type ButtonStat = StatType | 'SHOT';
 
 interface StatEvent {
   id: string;
@@ -48,11 +52,8 @@ interface Game {
   awayInBonus?: boolean;
 }
 
-const STAT_BUTTONS: { type: StatType; label: string; color: string }[] = [
-  { type: '2PM', label: '2 Made', color: 'bg-green-500 hover:bg-green-600' },
-  { type: '2PA', label: '2 Miss', color: 'bg-red-400 hover:bg-red-500' },
-  { type: '3PM', label: '3 Made', color: 'bg-green-600 hover:bg-green-700' },
-  { type: '3PA', label: '3 Miss', color: 'bg-red-500 hover:bg-red-600' },
+const STAT_BUTTONS: { type: ButtonStat; label: string; color: string }[] = [
+  { type: 'SHOT', label: 'Shot', color: 'bg-green-500 hover:bg-green-600' },
   { type: 'FTM', label: 'FT Made', color: 'bg-blue-500 hover:bg-blue-600' },
   { type: 'FTA', label: 'FT Miss', color: 'bg-blue-400 hover:bg-blue-500' },
   { type: 'OREB', label: 'OReb', color: 'bg-orange-500 hover:bg-orange-600' },
@@ -64,8 +65,6 @@ const STAT_BUTTONS: { type: StatType; label: string; color: string }[] = [
   { type: 'PF', label: 'Foul', color: 'bg-gray-600 hover:bg-gray-700' },
   { type: 'TF', label: 'Tech', color: 'bg-gray-700 hover:bg-gray-800' },
 ];
-
-const SHOT_STATS = new Set<StatType>(['2PM', '2PA', '3PM', '3PA']);
 
 function calcScore(events: StatEvent[], teamId: string | null): number {
   return events.reduce((acc, e) => {
@@ -129,7 +128,7 @@ export default function LiveRecordingPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
 
-  const [selectedStat, setSelectedStat] = useState<StatType | null>(null);
+  const [selectedStat, setSelectedStat] = useState<ButtonStat | null>(null);
   const [selectedTeam, setSelectedTeam] = useState<'home' | 'away' | null>(null);
   const [logOpen, setLogOpen] = useState(false);
   const [showSubModal, setShowSubModal] = useState(false);
@@ -142,7 +141,6 @@ export default function LiveRecordingPage() {
   const [pendingShot, setPendingShot] = useState<{
     playerId: string;
     teamId: string;
-    statType: ShotStatType;
     playerName: string;
   } | null>(null);
   const undoStack = useRef<string[]>([]);
@@ -259,7 +257,7 @@ export default function LiveRecordingPage() {
     onSuccess: () => navigate(-1),
   });
 
-  const handleStatSelect = useCallback((stat: StatType) => {
+  const handleStatSelect = useCallback((stat: ButtonStat) => {
     setSelectedStat((prev) => (prev === stat ? null : stat));
     setSelectedTeam(null);
   }, []);
@@ -270,11 +268,10 @@ export default function LiveRecordingPage() {
       const teamId = side === 'home' ? game?.homeTeamId : game?.awayTeamId;
       if (!teamId) return;
 
-      if (SHOT_STATS.has(selectedStat as ShotStatType)) {
+      if (selectedStat === 'SHOT') {
         setPendingShot({
           playerId: player.id,
           teamId,
-          statType: selectedStat as ShotStatType,
           playerName: `#${player.jerseyNumber ?? '?'} ${player.lastName}`,
         });
         return;
@@ -604,24 +601,16 @@ export default function LiveRecordingPage() {
       {/* Court location picker for shot events */}
       {pendingShot && (
         <CourtLocationPicker
-          statType={pendingShot.statType}
           playerName={pendingShot.playerName}
           onConfirm={(x, y, statType) => {
-            // statType is auto-derived from the tapped location (2pt vs 3pt),
-            // preserving made/missed from the original stat button.
+            // statType (2PM/2PA/3PM/3PA) is derived from the tapped location
+            // and the MADE/MISS choice in the picker.
             recordMutation.mutate({
               playerId: pendingShot.playerId,
               teamId: pendingShot.teamId,
               statType,
               xCourt: x,
               yCourt: y,
-            });
-          }}
-          onSkip={() => {
-            recordMutation.mutate({
-              playerId: pendingShot.playerId,
-              teamId: pendingShot.teamId,
-              statType: pendingShot.statType,
             });
           }}
           onCancel={() => setPendingShot(null)}
