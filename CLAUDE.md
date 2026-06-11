@@ -117,7 +117,7 @@ import type { Baz } from '@domain/entities/game.entity.js';  // correct
 
 ### backend/src/application/ — imports domain only
 
-- Only `auth/` and `games/` have dedicated use-case files: `registerUser.ts`, `loginUser.ts`, `refreshTokens.ts`, `recordStatEvent.ts`, `recordSubstitution.ts`. All other business logic (analytics, AI, export, scouting, tournaments, etc.) is implemented inline inside route files.
+- Only `auth/` and `games/` have dedicated use-case files: `registerUser.ts`, `loginUser.ts`, `refreshTokens.ts`, `recordStatEvent.ts`, `recordSubstitution.ts`, `createGame.ts`. All other business logic (analytics, AI, export, scouting, tournaments, etc.) is implemented inline inside route files.
 - Each use case is a single exported async function; dependencies injected as parameters
 - **Zod parse pattern:** every use case calls `Schema.parse(rawInput)` internally — never rely on route-level validation alone
 - **Input type pattern:** use `z.input<typeof Schema>` for function parameters when the schema has `.default()` fields, so callers don't need to supply defaulted values (e.g. `RecordStatEventRawInput`)
@@ -218,8 +218,8 @@ import type { Baz } from '@domain/entities/game.entity.js';  // correct
 | GET | `/teams/:teamId/players/:id` | ✓ | Get player |
 | PUT | `/teams/:teamId/players/:id` | ✓ | Update player |
 | DELETE | `/teams/:teamId/players/:id` | ✓ | Delete player |
-| GET | `/teams/:teamId/games` | ✓ | List games |
-| POST | `/teams/:teamId/games` | ✓ | Create game |
+| GET | `/teams/:teamId/games` | ✓ | List games (optional `?tournamentId=`) |
+| POST | `/teams/:teamId/games` | ✓ | Create game (optional `tournamentId`; defaults to the team's "Friendly" tournament) |
 | GET | `/teams/:teamId/games/season-stats` | ✓ | Season aggregate stats |
 | GET | `/teams/:teamId/players/season-stats` | ✓ | Team season stats (`?dateFrom`, `?dateTo`, `?per36=true`) |
 | GET | `/teams/:teamId/trend-stats` | ✓ | Per-game trend by stat (`?stat=pts&playerId=uuid`) |
@@ -229,6 +229,7 @@ import type { Baz } from '@domain/entities/game.entity.js';  // correct
 | GET | `/teams/:teamId/on-off/:playerId` | ✓ | On/off analysis |
 | GET | `/teams/:teamId/efficiency` | ✓ | Efficiency metrics |
 | GET | `/teams/:teamId/players/:playerId/shot-chart` | ✓ | Player+team shot chart |
+| GET | `/teams/:teamId/tournaments` | ✓ | List team's tournaments (always includes auto-created "Friendly") |
 | GET | `/games/:gameId` | ✓ | Get game |
 | PATCH | `/games/:gameId` | ✓ | Update game |
 | POST | `/games/:gameId/start` | ✓ | Start game |
@@ -270,7 +271,7 @@ import type { Baz } from '@domain/entities/game.entity.js';  // correct
 | PUT | `/scouting-reports/:id` | ✓ | Update report |
 | DELETE | `/scouting-reports/:id` | ✓ | Delete report |
 | POST | `/scouting-reports/:id/share` | ✓ | Share report (or `{ revoke:true }` to revoke) |
-| GET | `/tournaments` | ✓ | List tournaments |
+| GET | `/tournaments` | ✓ | List global/org tournaments (excludes team-scoped rows) |
 | POST | `/tournaments` | ✓ | Create tournament |
 | GET | `/tournaments/:id` | ✓ | Get tournament |
 | PUT | `/tournaments/:id` | ✓ | Update tournament |
@@ -345,7 +346,9 @@ import type { Baz } from '@domain/entities/game.entity.js';  // correct
 - **PlayersPage** edit modal calls `PUT /teams/:teamId/players/:id` with full player fields including `status`. Valid status values: `active`, `injured`, `hidden`, `transferred`. CSV import button triggers hidden file input → `POST /teams/:teamId/players/import` with `Content-Type: text/csv`.
 - **PlayerCardPage** (`/teams/:teamId/players/:playerId`): 3-tab development section (Dev Log / Trends / Goals) below the main card. Dev Log: date+metric+value+notes entries. Trends: per-metric Recharts `LineChart` from `/players/:playerId/development/chart`. Goals: target metric/value/date, mark-achieved toggle. All three tabs are independent TanStack queries.
 - **PlayerComparisonPage** (`/teams/:teamId/players/compare`): chips-style multi-selector (up to 4). 11-stat table (GP, PPG, RPG, APG, SPG, BPG, FG%, eFG%, 3P%, TS%, MIN/G); best-value cell highlighted green. Data from `/teams/:teamId/players/season-stats`.
-- **GameSetupWizard** (`GamesPage.tsx`): 4-step modal: Step 1 (Teams — opponent name + template selector), Step 2 (Format — periods/duration/foul limits), Step 3 (Starting Lineup — home team active players as toggle buttons, max 5; posts to `/games/:id/lineups/initial` after creation, skip is allowed), Step 4 (Confirm & Create — navigates to `/games/:id/live`).
+- **Game↔tournament linking**: every `games` row has a nullable `tournament_id` FK (`ON DELETE SET NULL`). `POST /teams/:teamId/games` resolves it via the `createGame` use case (`application/games/createGame.ts`): if `tournamentId` is omitted, `ITournamentRepository.findOrCreateFriendlyForTeam(teamId)` finds-or-creates a tournament named "Friendly" scoped to that team via a nullable `tournaments.team_id` FK with a unique `(team_id, name)` index (Postgres treats NULLs as distinct, so global/org tournaments with `team_id = NULL` are unaffected). `GET /teams/:teamId/tournaments` lists a team's tournaments (always includes "Friendly", auto-created on first call). The global `GET /tournaments` (`findAll()`) excludes team-scoped rows (`team_id IS NULL` only) so per-team "Friendly" tournaments never appear in the cross-team bracket list.
+- **GameSetupWizard** (`GamesPage.tsx`): 4-step modal: Step 1 (Teams — opponent name, tournament selector defaulting to the team's "Friendly" tournament, + template selector), Step 2 (Format — periods/duration/foul limits), Step 3 (Starting Lineup — home team active players as toggle buttons, max 5; posts to `/games/:id/lineups/initial` after creation, skip is allowed), Step 4 (Confirm & Create — navigates to `/games/:id/live`).
+- **GamesPage** (`/teams/:teamId/games`): tournament filter dropdown (from `GET /teams/:teamId/tournaments`, "All Tournaments" default) drives `GET /teams/:teamId/games?tournamentId=`; each game card shows a tournament-name badge resolved client-side from the fetched tournaments list (omitted when `tournamentId` is null).
 - **GameLogPage** (`/games/:gameId/log`): event log grouped by period. Delete with confirmation dialog. Linked from `BoxScorePage` header. Quick-edit (beyond delete) is deferred to `ActionLogModal` in Sprint S14.
 - **SeasonBoxScorePage** (`/teams/:teamId/season-box-score`): sortable table with Per-Game Average / Season Totals toggle + date range filters + Per-36 toggle. Linked from AnalyticsDashboard Season tab.
 - **OnOffPage** (`/teams/:teamId/analytics/on-off`): player selector dropdown, On/Off split table with PTS / OPP PTS / +/- columns and a Delta row.
@@ -421,7 +424,7 @@ cd frontend && npm run lint   # uses frontend/eslint.config.js
 main ← release/* ← develop ← feature/*
 ```
 
-Current state: Phase 2 (FIBA Statistical Foundation) complete. Released through `v1.5.0` (tagged on `main`). All releases back-merged into `develop`. Active work starts from a new `feature/*` branch off `develop`.
+Current state: Phase 2 (FIBA Statistical Foundation) complete; v1.6.0 added game↔tournament linking. Released through `v1.6.0` (tagged on `main`). All releases back-merged into `develop`. Active work starts from a new `feature/*` branch off `develop`.
 
 | Release | Sprints | Key content |
 | --- | --- | --- |
@@ -431,5 +434,6 @@ Current state: Phase 2 (FIBA Statistical Foundation) complete. Released through 
 | v1.4.0 | S04 | Development tracking, opponent teams/profiles, team member management, player comparison, forgot/reset password, CSV import |
 | v1.4.1 | debt | ESLint 9 flat config, Drizzle snapshot regeneration, GameSetupWizard Step 3 wiring, CI/CD fixes, 30 Playwright E2E tests |
 | v1.5.0 | S05+S06 | FIBA foundation: possession tracking + sequences, linked actions + cascade delete, auto 2pt/3pt classification, 14 BR-STAT validators, MET-1 minutes, team rebounds, domain foul bonus, events-route membership guard |
+| v1.6.0 | — | Game↔tournament linking: `tournament_id` on `games`, per-team auto "Friendly" tournament (`tournaments.team_id` + unique index), `createGame` use case, `GET /teams/:teamId/tournaments`, tournament filter + badge on GamesPage, tournament selector on GameSetupWizard |
 
 Never commit directly to `main` or `develop`.

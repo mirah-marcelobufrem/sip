@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQuery, useMutation } from '@tanstack/react-query';
 import { api } from '../../lib/api';
@@ -28,6 +28,11 @@ interface Player {
   status: string;
 }
 
+interface Tournament {
+  id: string;
+  name: string;
+}
+
 type Format = 'quarters' | 'halves';
 
 export default function GameSetupWizard({ teamId, teamName, onClose }: GameSetupWizardProps) {
@@ -37,6 +42,7 @@ export default function GameSetupWizard({ teamId, teamName, onClose }: GameSetup
   // Step 1 — Teams
   const [awayTeamName, setAwayTeamName] = useState('');
   const [date, setDate] = useState('');
+  const [tournamentId, setTournamentId] = useState<string | null>(null);
 
   // Step 2 — Format
   const [format, setFormat] = useState<Format>('quarters');
@@ -68,6 +74,17 @@ export default function GameSetupWizard({ teamId, teamName, onClose }: GameSetup
     queryFn: () => api.get(`/teams/${teamId}/players`),
   });
 
+  const { data: tournaments = [] } = useQuery<Tournament[]>({
+    queryKey: ['tournaments', teamId],
+    queryFn: () => api.get(`/teams/${teamId}/tournaments`),
+  });
+
+  useEffect(() => {
+    if (tournamentId || tournaments.length === 0) return;
+    const friendly = tournaments.find((t) => t.name === 'Friendly');
+    setTournamentId((friendly ?? tournaments[0]).id);
+  }, [tournaments, tournamentId]);
+
   const createMutation = useMutation({
     mutationFn: async (templateSave: boolean) => {
       const gameData = {
@@ -76,6 +93,7 @@ export default function GameSetupWizard({ teamId, teamName, onClose }: GameSetup
         numPeriods,
         periodDurationMinutes: resolvedDuration,
         notes: awayTeamName || undefined,
+        tournamentId: tournamentId ?? undefined,
       };
 
       const game = await api.post<{ id: string }>(`/teams/${teamId}/games`, gameData);
@@ -185,6 +203,21 @@ export default function GameSetupWizard({ teamId, teamName, onClose }: GameSetup
                   onChange={(e) => setDate(e.target.value)}
                   className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg text-sm bg-white dark:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-brand-500"
                 />
+              </div>
+              <div>
+                <label htmlFor="wizard-tournament" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  Tournament
+                </label>
+                <select
+                  id="wizard-tournament"
+                  value={tournamentId ?? ''}
+                  onChange={(e) => setTournamentId(e.target.value || null)}
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg text-sm bg-white dark:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-brand-500"
+                >
+                  {tournaments.map((t) => (
+                    <option key={t.id} value={t.id}>{t.name}</option>
+                  ))}
+                </select>
               </div>
             </>
           )}

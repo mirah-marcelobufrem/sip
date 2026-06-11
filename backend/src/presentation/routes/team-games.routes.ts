@@ -2,55 +2,34 @@ import { Router, type Request } from 'express';
 import { z } from 'zod';
 import { getDb } from '../../infrastructure/database/connection.js';
 import { DrizzleGameRepository } from '../../infrastructure/database/repositories/game.repository.js';
+import { DrizzleTournamentRepository } from '../../infrastructure/database/repositories/tournament.repository.js';
 import { authenticate } from '../middleware/auth.middleware.js';
-import type { Game } from '../../domain/entities/game.entity.js';
+import { createGame } from '../../application/games/createGame.js';
 
 const router = Router({ mergeParams: true });
 router.use(authenticate);
 
-const CreateGameBody = z.object({
-  date: z.string().datetime().optional(),
-  location: z.string().optional(),
-  format: z.enum(['quarters', 'halves']).default('quarters'),
-  numPeriods: z.number().int().min(2).max(4).default(4),
-  periodDurationMinutes: z.number().int().min(1).max(20).default(10),
-  foulLimitBonus: z.number().int().min(1).max(10).default(5),
-  threePointEnabled: z.boolean().default(true),
-  awayTeamId: z.string().uuid().optional(),
-  awayOpponentTeamId: z.string().uuid().optional(),
-  notes: z.string().optional(),
+const GamesQuery = z.object({
+  tournamentId: z.string().uuid().optional(),
 });
 
 router.get('/', async (req: Request<{ teamId: string }>, res, next) => {
   try {
+    const { tournamentId } = GamesQuery.parse(req.query);
     const db = getDb();
-    const games = await new DrizzleGameRepository(db).findByTeam(req.params.teamId);
+    const games = await new DrizzleGameRepository(db).findByTeam(req.params.teamId, { tournamentId });
     res.json(games);
   } catch (err) { next(err); }
 });
 
 router.post('/', async (req: Request<{ teamId: string }>, res, next) => {
   try {
-    const body = CreateGameBody.parse(req.body);
     const db = getDb();
-    const game = await new DrizzleGameRepository(db).create({
-      homeTeamId: req.params.teamId,
-      awayTeamId: body.awayTeamId ?? null,
-      homeOpponentTeamId: null,
-      awayOpponentTeamId: body.awayOpponentTeamId ?? null,
-      date: body.date ? new Date(body.date) : new Date(),
-      location: body.location ?? null,
-      format: body.format,
-      numPeriods: body.numPeriods,
-      periodDurationMinutes: body.periodDurationMinutes,
-      foulLimitBonus: body.foulLimitBonus,
-      threePointEnabled: body.threePointEnabled,
-      currentPeriod: 1,
-      status: 'scheduled',
-      finalScoreHome: null,
-      finalScoreAway: null,
-      notes: body.notes ?? null,
-    } as Omit<Game, 'id'>);
+    const game = await createGame(
+      { ...req.body, teamId: req.params.teamId },
+      new DrizzleGameRepository(db),
+      new DrizzleTournamentRepository(db),
+    );
     res.status(201).json(game);
   } catch (err) { next(err); }
 });

@@ -2,7 +2,7 @@
 
 Basketball intelligence app — live stat tracking, player & opponent scouting, and tournament management.
 
-> **v1.5.0** — Phase 2 (FIBA Statistical Foundation, S05–S06) complete. Phase 3 (FIBA type enumerations) next.
+> **v1.6.0** — Game↔tournament linking. Phase 2 (FIBA Statistical Foundation, S05–S06) complete; Phase 3 (FIBA type enumerations) next.
 
 ## Features
 
@@ -42,6 +42,7 @@ Basketball intelligence app — live stat tracking, player & opponent scouting, 
 - **Tournament management** — single/double-elimination and round-robin brackets
 - **Public bracket pages** — shareable without login (`/bracket/:token`)
 - **Tournament leaders** — top-5 PTS/REB/AST/STL widget on the bracket page
+- **Game↔tournament linking** — every game belongs to a tournament; teams get an automatic "Friendly" tournament for non-bracket games, with a tournament selector in the Game Setup Wizard and a tournament filter/badge on the Games page
 
 ### AI (Anthropic Claude)
 
@@ -222,6 +223,7 @@ Frontend follows feature-sliced modules — features never import from each othe
 | v1.4.0 (S04) | Development tracking (Log/Trends/Goals), opponent teams/profiles, team member management + invite, player comparison, forgot/reset password, CSV player import |
 | v1.4.1 (debt) | ESLint 9 flat config, Drizzle snapshot regeneration, GameSetupWizard Step 3, CI/CD fixes, 30 Playwright E2E tests |
 | v1.5.0 (S05–S06) | FIBA statistical foundation: possession tracking with arrow indicator, linked action pairs + cascade delete, court-tap auto 2pt/3pt with override, 14 FIBA BR-STAT validators, MET-1 minutes rounding, team rebounds, API-driven foul bonus, team-membership guard on event routes |
+| v1.6.0 | Game↔tournament linking: `tournament_id` on games, per-team auto "Friendly" tournament, tournament selector on Game Setup Wizard, tournament filter + badge on Games page |
 
 ## GitFlow
 
