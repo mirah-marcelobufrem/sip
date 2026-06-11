@@ -16,7 +16,7 @@ export class DrizzleGameRepository implements IGameRepository {
     return rows[0] ? this.toEntity(rows[0]) : null;
   }
 
-  async findByTeam(teamId: string, filters?: { status?: string }): Promise<Game[]> {
+  async findByTeam(teamId: string, filters?: { status?: string; tournamentId?: string }): Promise<Game[]> {
     const rows = await this.db
       .select()
       .from(games)
@@ -24,6 +24,7 @@ export class DrizzleGameRepository implements IGameRepository {
     return rows
       .filter((g) => g.homeTeamId === teamId || g.awayTeamId === teamId)
       .filter((g) => !filters?.status || g.status === filters.status)
+      .filter((g) => !filters?.tournamentId || g.tournamentId === filters.tournamentId)
       .map(this.toEntity);
   }
 
@@ -43,6 +44,7 @@ export class DrizzleGameRepository implements IGameRepository {
       currentPeriod: data.currentPeriod,
       status: data.status,
       notes: data.notes,
+      tournamentId: data.tournamentId,
     }).returning();
     return this.toEntity(rows[0]!);
   }
@@ -84,6 +86,7 @@ export class DrizzleGameRepository implements IGameRepository {
       notes: row.notes,
       currentPossessionTeamId: row.currentPossessionTeamId,
       possessionArrowTeamId: row.possessionArrowTeamId,
+      tournamentId: row.tournamentId,
     };
   }
 }

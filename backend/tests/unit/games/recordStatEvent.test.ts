@@ -62,6 +62,7 @@ function makeGame(overrides: Partial<Game> = {}): Game {
     notes: null,
     currentPossessionTeamId: TEAM_ID,
     possessionArrowTeamId: AWAY_TEAM_ID,
+    tournamentId: null,
     ...overrides,
   };
 }

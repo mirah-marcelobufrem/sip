@@ -13,6 +13,12 @@ interface Game {
   finalScoreAway: number | null;
   numPeriods: number;
   format: string;
+  tournamentId: string | null;
+}
+
+interface Tournament {
+  id: string;
+  name: string;
 }
 
 const STATUS_COLOR: Record<string, string> = {
@@ -25,10 +31,22 @@ const STATUS_COLOR: Record<string, string> = {
 export default function GamesPage() {
   const { teamId } = useParams<{ teamId: string }>();
   const [showWizard, setShowWizard] = useState(false);
+  const [tournamentFilter, setTournamentFilter] = useState('');
+
+  const { data: tournaments = [] } = useQuery<Tournament[]>({
+    queryKey: ['tournaments', teamId],
+    queryFn: () => api.get(`/teams/${teamId}/tournaments`),
+  });
+
+  const tournamentNames = new Map(tournaments.map((t) => [t.id, t.name]));
 
   const { data: games = [], isLoading } = useQuery<Game[]>({
-    queryKey: ['games', teamId],
-    queryFn: () => api.get(`/teams/${teamId}/games`),
+    queryKey: ['games', teamId, tournamentFilter],
+    queryFn: () => api.get(
+      tournamentFilter
+        ? `/teams/${teamId}/games?tournamentId=${tournamentFilter}`
+        : `/teams/${teamId}/games`
+    ),
   });
 
   return (
@@ -43,6 +61,23 @@ export default function GamesPage() {
         </button>
       </div>
 
+      {tournaments.length > 0 && (
+        <div className="mb-4">
+          <label htmlFor="tournament-filter" className="sr-only">Filter by tournament</label>
+          <select
+            id="tournament-filter"
+            value={tournamentFilter}
+            onChange={(e) => setTournamentFilter(e.target.value)}
+            className="px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg text-sm bg-white dark:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-brand-500"
+          >
+            <option value="">All Tournaments</option>
+            {tournaments.map((t) => (
+              <option key={t.id} value={t.id}>{t.name}</option>
+            ))}
+          </select>
+        </div>
+      )}
+
       {isLoading && <p className="text-gray-500">Loading…</p>}
 
       <div className="space-y-3">
@@ -53,6 +88,11 @@ export default function GamesPage() {
                 <p className="text-sm text-gray-500">{new Date(g.date).toLocaleDateString()}</p>
                 {g.location && <p className="text-xs text-gray-400">{g.location}</p>}
                 <p className="text-xs text-gray-400 mt-0.5">{g.format === 'halves' ? '2 halves' : `${g.numPeriods}Q`}</p>
+                {g.tournamentId && tournamentNames.has(g.tournamentId) && (
+                  <span className="inline-block mt-1 text-xs bg-gray-100 dark:bg-gray-800 text-gray-500 px-2 py-0.5 rounded-full">
+                    {tournamentNames.get(g.tournamentId)}
+                  </span>
+                )}
               </div>
               {g.finalScoreHome !== null && (
                 <div className="text-2xl font-bold tabular-nums text-gray-900 dark:text-gray-100">
