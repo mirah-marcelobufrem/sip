@@ -75,6 +75,10 @@ export interface StatEvent {
   linkedActionId: string | null;
   linkRole: LinkRole | null;
   waveSubGroupId: string | null;
+  /** BR-STAT-4.3 — team rebound: when true, playerId MUST be null. */
+  isTeamRebound: boolean;
+  /** BR-STAT-9.2 — coach/bench foul: excluded from the team-foul (bonus) count. */
+  isBenchFoul: boolean;
   createdAt: Date;
 }
 

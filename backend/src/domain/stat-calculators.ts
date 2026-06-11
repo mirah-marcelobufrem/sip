@@ -60,8 +60,9 @@ export function aggregatePlayerEvents(events: StatEvent[]): PlayerBoxScore {
       case '3PA': box.threepa++; break;
       case 'FTM': box.ftm++; box.pts++; break;
       case 'FTA': box.fta++; break;
-      case 'OREB': box.oreb++; break;
-      case 'DREB': box.dreb++; break;
+      // BR-STAT-4.3 — team rebounds never count toward an individual stat line
+      case 'OREB': if (!e.isTeamRebound) box.oreb++; break;
+      case 'DREB': if (!e.isTeamRebound) box.dreb++; break;
       case 'AST': box.ast++; break;
       case 'TO': box.to++; break;
       case 'STL': box.stl++; break;
@@ -78,6 +79,92 @@ export function aggregatePlayerEvents(events: StatEvent[]): PlayerBoxScore {
   box.reb = box.oreb + box.dreb;
 
   return box;
+}
+
+export interface TeamReboundTotals {
+  teamOReb: number;
+  teamDReb: number;
+}
+
+/**
+ * BR-STAT-4.3 — team-level rebound aggregate. Counts only OREB/DREB events
+ * flagged isTeamRebound for the given team; player rebounds are excluded
+ * (they live on the individual box scores).
+ */
+export function aggregateTeamRebounds(events: StatEvent[], teamId: string): TeamReboundTotals {
+  let teamOReb = 0;
+  let teamDReb = 0;
+  for (const e of events) {
+    if (!e.isTeamRebound || e.teamId !== teamId) continue;
+    if (e.statType === 'OREB') teamOReb++;
+    else if (e.statType === 'DREB') teamDReb++;
+  }
+  return { teamOReb, teamDReb };
+}
+
+/**
+ * FIBA BR-MET-1.1–1.5 — minutes-played display rounding.
+ *
+ * - Fractional seconds (0.1–0.9 s) are first rounded UP to a whole second.
+ * - < 30 s into a minute → round DOWN; ≥ 30 s → round UP.
+ * - EXCEPTION (BR-MET-1.5): within the final minute below the game maximum
+ *   (e.g. 39:59 of a 40:00 game) → always round DOWN, so a player never
+ *   shows the full game length unless they played every second of it.
+ *
+ * Returns a whole-minute string ("0", "1", "39", "40"). 0 seconds returns
+ * "0" — "DNP" is decided by the caller via isDNP(), not by this formatter.
+ */
+export function formatMinutesPlayed(seconds: number, gameMaxSeconds: number): string {
+  if (seconds <= 0) return '0';
+
+  // BR-MET-1.4 — sub-second remainders round up to a full second first
+  const wholeSeconds = Math.min(Math.ceil(seconds), gameMaxSeconds);
+
+  const floorMinutes = Math.floor(wholeSeconds / 60);
+  const remainder = wholeSeconds % 60;
+
+  // BR-MET-1.5 — final minute below the game max always rounds down
+  const maxMinutes = Math.floor(gameMaxSeconds / 60);
+  if (wholeSeconds < gameMaxSeconds && floorMinutes === maxMinutes - 1) {
+    return String(floorMinutes);
+  }
+
+  return String(remainder >= 30 ? floorMinutes + 1 : floorMinutes);
+}
+
+/**
+ * BR-MET-1.3 — DNP detection: a player who has no SUB_IN event and was not a
+ * starter never entered the game.
+ *
+ * Today's model has no isStarter field on the player entity; starters are
+ * recorded via the initial lineup snapshot. Callers therefore pass the
+ * starter ids (period-1 initial lineup playerIds) explicitly.
+ */
+export function isDNP(events: StatEvent[], playerId: string, starterPlayerIds: string[] = []): boolean {
+  if (starterPlayerIds.includes(playerId)) return false;
+  return !events.some((e) => e.statType === 'SUB_IN' && e.playerId === playerId);
+}
+
+/** FIBA: a team enters the bonus on its 5th team foul of the period. */
+export const FOUL_BONUS_THRESHOLD = 5;
+
+/**
+ * BR-STAT-9.2/9.3 — team fouls for one period: PF/TF/FF events committed by
+ * the team in that period, excluding coach/bench fouls (isBenchFoul).
+ * Events arrive pre-filtered for soft deletes (repository contract).
+ */
+export function getTeamFoulCountForPeriod(events: StatEvent[], teamId: string, period: number): number {
+  return events.filter(
+    (e) =>
+      (e.statType === 'PF' || e.statType === 'TF' || e.statType === 'FF') &&
+      e.teamId === teamId &&
+      e.period === period &&
+      !e.isBenchFoul,
+  ).length;
+}
+
+export function isTeamInBonus(events: StatEvent[], teamId: string, period: number): boolean {
+  return getTeamFoulCountForPeriod(events, teamId, period) >= FOUL_BONUS_THRESHOLD;
 }
 
 export function deriveStats(box: PlayerBoxScore): DerivedStats {

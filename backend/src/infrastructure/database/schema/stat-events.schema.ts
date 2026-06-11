@@ -1,4 +1,4 @@
-import { doublePrecision, integer, jsonb, pgEnum, pgTable, real, text, timestamp, uuid, type AnyPgColumn } from 'drizzle-orm/pg-core';
+import { boolean, doublePrecision, integer, jsonb, pgEnum, pgTable, real, text, timestamp, uuid, type AnyPgColumn } from 'drizzle-orm/pg-core';
 import { games } from './games.schema.js';
 
 export const statTypeEnum = pgEnum('stat_type', [
@@ -30,6 +30,10 @@ export const statEvents = pgTable('stat_events', {
   }),
   linkRole: text('link_role'),
   waveSubGroupId: uuid('wave_sub_group_id'),
+  // BR-STAT-4.3 — team rebound: when true, player_id must be null
+  isTeamRebound: boolean('is_team_rebound').notNull().default(false),
+  // BR-STAT-9.2 — coach/bench foul: never counts toward the team-foul bonus
+  isBenchFoul: boolean('is_bench_foul').notNull().default(false),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   deletedAt: timestamp('deleted_at', { withTimezone: true }),
 });

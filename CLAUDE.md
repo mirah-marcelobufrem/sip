@@ -109,9 +109,10 @@ import type { Baz } from '@domain/entities/game.entity.js';  // correct
 
 ### backend/src/domain/ — zero external imports
 
-- `entities/` — plain TypeScript interfaces (User, Player, Game, StatEvent…)
+- `entities/` — plain TypeScript interfaces (User, Player, Game, StatEvent, PossessionState…)
 - `repositories/` — repository interfaces (ports); `value-objects/` exists but is currently empty
-- `stat-calculators.ts` — all derived stat logic (eFG%, TS%, +/-, shot zone, run detection)
+- `stat-calculators.ts` — all derived stat logic (eFG%, TS%, +/-, shot zone, run detection, possession resolution, 3pt geometry, FIBA MET-1 minutes, foul bonus)
+- `action-flag-validator.ts` — FIBA BR-STAT rule validators: 14 pure named rules (`ruleBRSTAT_2_2` … `ruleBRSTAT_9_2`) + `validateAction(event, ctx): ValidationResult[]` pipeline. Rules detect and describe violations (`FlagKind: 'MissingFGA' | 'User' | 'AutoCorrect'`) — they never mutate or insert events; the S08 capture engine consumes the results. Rules whose FIBA triggers need S07 event subtypes are approximated against today's model (documented in each rule's JSDoc).
 - `tournament-bracket.ts` — bracket seeding and advancement logic
 
 ### backend/src/application/ — imports domain only
@@ -295,7 +296,7 @@ import type { Baz } from '@domain/entities/game.entity.js';  // correct
 | GET | `/account/export` | ✓ | LGPD/GDPR data export (JSON download) |
 | DELETE | `/account` | ✓ | Delete account (soft-delete + anonymize) |
 
-## Database Schema (22 tables)
+## Database Schema (23 tables)
 
 | Table | Schema file |
 | --- | --- |
@@ -318,6 +319,7 @@ import type { Baz } from '@domain/entities/game.entity.js';  // correct
 | `development_goals` | development.schema.ts |
 | `tournaments` | tournaments.schema.ts |
 | `tournament_games` | tournaments.schema.ts |
+| `possession_sequences` | possessions.schema.ts |
 | `settings` | settings.schema.ts |
 | `push_subscriptions` | push-subscriptions.schema.ts |
 | `notification_logs` | push-subscriptions.schema.ts |
@@ -334,7 +336,11 @@ import type { Baz } from '@domain/entities/game.entity.js';  // correct
 - Shot zones are assigned by `classifyShotZone(x, y)` — x/y are normalized 0.0–1.0.
 - **Skill ratings** in scouting reports are stored as JSON under the key `skillRatings`. The 10 canonical keys are: `scoring`, `ballHandling`, `passing`, `offBallMovement`, `defenseOnBall`, `defenseHelp`, `rebounding`, `athleticism`, `basketballIq`, `clutch` (all 0–10). Never add new keys without updating `SKILL_LABELS` in both `ScoutingPage.tsx` and `PlayerCardPage.tsx`.
 - **Box-score endpoint** (`GET /games/:gameId/box-score`) returns per-player rows that include `playerName`, `jerseyNumber`, `teamId`, and `isHomeTeam`. Names are resolved by joining both `players` (own roster) and `opponent_players` tables. Always use these fields — never display raw `playerId` UUIDs.
-- **LiveRecordingPage** tracks both teams' lineups independently. The foul BONUS threshold is 5 fouls per quarter (`FOUL_BONUS_THRESHOLD = 5`). Substitutions go through `POST /games/:gameId/lineups`; period advance through `PATCH /games/:gameId`.
+- **LiveRecordingPage** tracks both teams' lineups independently. Foul bonus is API-driven: `GET /games/:gameId` returns `homeTeamFoulsThisPeriod`, `awayTeamFoulsThisPeriod`, `homeInBonus`, `awayInBonus` computed by `isTeamInBonus()`/`getTeamFoulCountForPeriod()` in `stat-calculators.ts` (`FOUL_BONUS_THRESHOLD = 5` lives in the domain, NOT the frontend; bench fouls `is_bench_foul=true` are excluded). The page also shows a possession arrow (`PossessionIndicator`, hidden when possession unknown) and a "Team Reb" control that records OREB/DREB with `playerId: null` + `isTeamRebound: true`. Substitutions go through `POST /games/:gameId/lineups`; period advance through `PATCH /games/:gameId`.
+- **stat_events flags**: `is_team_rebound=true` requires `playerId` null (enforced by Zod in `recordStatEvent`); team rebounds are excluded from per-player box scores and surface as `teamOReb`/`teamDReb` (repeated on each of the team's box-score rows). `is_bench_foul=true` fouls don't count toward the team foul bonus.
+- **Minutes display**: `formatMinutesPlayed(seconds, gameMaxSeconds)` (FIBA MET-1 rounding: <30s floor, ≥30s ceil, final-minute-below-max always floors) is exposed as `minutesDisplay` on box-score and season-stats rows ALONGSIDE numeric `minSeconds` — never replace the numeric field. `isDNP(events, playerId, starterPlayerIds)` flags did-not-play.
+- **Shot location auto-classification**: tap location decides 2pt vs 3pt via `isThreePointArea` (spec frame, basket y=0.885) in `courtLines.tsx`; stored coords use the storage frame (basket y=0.113) — backend validates via the `isThreePointAreaCourt(x, 1−y)` adapter in `stat-calculators.ts`. Both implementations must stay formula-identical.
+- **Possession tracking**: every recorded event runs `resolvePossessionChange()`; `possession_sequences` rows open/close on change. Best-effort: games vs unmanaged opponents resolve possession to `null` (FK references `teams(id)`). `GET /games/:gameId` exposes `currentPossessionTeamId`/`possessionArrowTeamId`.
 - **AnalyticsDashboard** has four tabs: Season (leaders table + per-game trend chart + efficiency metrics + season box score link), Lineups (top 5-man combos + 2/3-man combo toggle from `/teams/:teamId/lineup-stats` and `/teams/:teamId/combo-stats`), Game Flow (game selector + `GameFlowChart` from `/games/:gameId/flow`), and AI Insights (`AiInsightsTab` — opponent + situation inputs → `POST /ai/lineup-recommendation/:teamId`). Lineup data only loads when the Lineups tab is active (`enabled: activeTab === 'lineup'`).
 - **PlayersPage** edit modal calls `PUT /teams/:teamId/players/:id` with full player fields including `status`. Valid status values: `active`, `injured`, `hidden`, `transferred`. CSV import button triggers hidden file input → `POST /teams/:teamId/players/import` with `Content-Type: text/csv`.
 - **PlayerCardPage** (`/teams/:teamId/players/:playerId`): 3-tab development section (Dev Log / Trends / Goals) below the main card. Dev Log: date+metric+value+notes entries. Trends: per-metric Recharts `LineChart` from `/players/:playerId/development/chart`. Goals: target metric/value/date, mark-achieved toggle. All three tabs are independent TanStack queries.
