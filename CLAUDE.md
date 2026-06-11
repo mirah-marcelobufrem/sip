@@ -421,7 +421,7 @@ cd frontend && npm run lint   # uses frontend/eslint.config.js
 main ← release/* ← develop ← feature/*
 ```
 
-Current state: Phase 1 complete. Released through `v1.4.1` (tagged on `main`). All releases back-merged into `develop`. Active work starts from a new `feature/*` branch off `develop`.
+Current state: Phase 2 (FIBA Statistical Foundation) complete. Released through `v1.5.0` (tagged on `main`). All releases back-merged into `develop`. Active work starts from a new `feature/*` branch off `develop`.
 
 | Release | Sprints | Key content |
 | --- | --- | --- |
@@ -430,5 +430,6 @@ Current state: Phase 1 complete. Released through `v1.4.1` (tagged on `main`). A
 | v1.3.0 | S03 | ShareSheet, AI Lineup tab, PublicScoutingReportPage, tournament leaders |
 | v1.4.0 | S04 | Development tracking, opponent teams/profiles, team member management, player comparison, forgot/reset password, CSV import |
 | v1.4.1 | debt | ESLint 9 flat config, Drizzle snapshot regeneration, GameSetupWizard Step 3 wiring, CI/CD fixes, 30 Playwright E2E tests |
+| v1.5.0 | S05+S06 | FIBA foundation: possession tracking + sequences, linked actions + cascade delete, auto 2pt/3pt classification, 14 BR-STAT validators, MET-1 minutes, team rebounds, domain foul bonus, events-route membership guard |
 
 Never commit directly to `main` or `develop`.
