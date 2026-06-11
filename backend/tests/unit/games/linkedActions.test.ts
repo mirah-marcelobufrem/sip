@@ -27,6 +27,8 @@ function makeEvent(overrides: Partial<StatEvent>): StatEvent {
     linkedActionId: null,
     linkRole: null,
     waveSubGroupId: null,
+    isTeamRebound: false,
+    isBenchFoul: false,
     createdAt: new Date(),
     ...overrides,
   };

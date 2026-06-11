@@ -43,6 +43,13 @@
       "when": 1781112010803,
       "tag": "0005_smooth_vulture",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1781135009114,
+      "tag": "0006_shocking_tyger_tiger",
+      "breakpoints": true
     }
   ]
 }
