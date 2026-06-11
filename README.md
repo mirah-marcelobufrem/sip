@@ -2,7 +2,7 @@
 
 Basketball intelligence app — live stat tracking, player & opponent scouting, and tournament management.
 
-> **v1.4.1** — Phase 1 (S01–S04) complete. Phase 2 (FIBA Statistical Foundation) next.
+> **v1.5.0** — Phase 2 (FIBA Statistical Foundation, S05–S06) complete. Phase 3 (FIBA type enumerations) next.
 
 ## Features
 
@@ -221,6 +221,7 @@ Frontend follows feature-sliced modules — features never import from each othe
 | v1.3.0 (S03) | ShareSheet, AI Lineup tab, Public Scouting Report page, tournament leaders widget |
 | v1.4.0 (S04) | Development tracking (Log/Trends/Goals), opponent teams/profiles, team member management + invite, player comparison, forgot/reset password, CSV player import |
 | v1.4.1 (debt) | ESLint 9 flat config, Drizzle snapshot regeneration, GameSetupWizard Step 3, CI/CD fixes, 30 Playwright E2E tests |
+| v1.5.0 (S05–S06) | FIBA statistical foundation: possession tracking with arrow indicator, linked action pairs + cascade delete, court-tap auto 2pt/3pt with override, 14 FIBA BR-STAT validators, MET-1 minutes rounding, team rebounds, API-driven foul bonus, team-membership guard on event routes |
 
 ## GitFlow
 
