@@ -1,7 +1,9 @@
 import { integer, pgTable, real, text, timestamp, uuid } from 'drizzle-orm/pg-core';
+import { users } from './users.schema.js';
 
 export const opponentTeams = pgTable('opponent_teams', {
   id: uuid('id').primaryKey().defaultRandom(),
+  createdByUserId: uuid('created_by_user_id').references(() => users.id),
   name: text('name').notNull(),
   logo: text('logo'),
   homeCourt: text('home_court'),

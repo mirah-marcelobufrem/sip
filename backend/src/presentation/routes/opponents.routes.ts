@@ -27,13 +27,13 @@ const PlayerBody = z.object({
 });
 
 // GET /opponent-teams
-router.get('/', async (_req, res, next) => {
+router.get('/', async (req, res, next) => {
   try {
     const db = getDb();
     const teams = await db
       .select()
       .from(opponentTeams)
-      .where(isNull(opponentTeams.deletedAt));
+      .where(and(eq(opponentTeams.createdByUserId, req.userId), isNull(opponentTeams.deletedAt)));
 
     const counts = await db
       .select({
@@ -63,6 +63,7 @@ router.post('/', async (req, res, next) => {
     const [team] = await db
       .insert(opponentTeams)
       .values({
+        createdByUserId: req.userId,
         name: body.name,
         logo: body.logo ?? null,
         homeCourt: body.homeCourt ?? null,
@@ -81,7 +82,7 @@ router.get('/:id', async (req: Request<{ id: string }>, res, next) => {
     const team = await db
       .select()
       .from(opponentTeams)
-      .where(and(eq(opponentTeams.id, req.params.id), isNull(opponentTeams.deletedAt)))
+      .where(and(eq(opponentTeams.id, req.params.id), eq(opponentTeams.createdByUserId, req.userId), isNull(opponentTeams.deletedAt)))
       .then(rows => rows[0] ?? null);
     if (!team) {
       res.status(404).json({ error: 'Opponent team not found', code: 'NOT_FOUND' }); return;
@@ -102,7 +103,7 @@ router.put('/:id', async (req: Request<{ id: string }>, res, next) => {
     const existing = await db
       .select()
       .from(opponentTeams)
-      .where(and(eq(opponentTeams.id, req.params.id), isNull(opponentTeams.deletedAt)))
+      .where(and(eq(opponentTeams.id, req.params.id), eq(opponentTeams.createdByUserId, req.userId), isNull(opponentTeams.deletedAt)))
       .then(rows => rows[0] ?? null);
     if (!existing) {
       res.status(404).json({ error: 'Opponent team not found', code: 'NOT_FOUND' }); return;
@@ -130,7 +131,7 @@ router.delete('/:id', async (req: Request<{ id: string }>, res, next) => {
     const existing = await db
       .select()
       .from(opponentTeams)
-      .where(and(eq(opponentTeams.id, req.params.id), isNull(opponentTeams.deletedAt)))
+      .where(and(eq(opponentTeams.id, req.params.id), eq(opponentTeams.createdByUserId, req.userId), isNull(opponentTeams.deletedAt)))
       .then(rows => rows[0] ?? null);
     if (!existing) {
       res.status(404).json({ error: 'Opponent team not found', code: 'NOT_FOUND' }); return;
@@ -150,7 +151,7 @@ router.get('/:id/players', async (req: Request<{ id: string }>, res, next) => {
     const team = await db
       .select()
       .from(opponentTeams)
-      .where(and(eq(opponentTeams.id, req.params.id), isNull(opponentTeams.deletedAt)))
+      .where(and(eq(opponentTeams.id, req.params.id), eq(opponentTeams.createdByUserId, req.userId), isNull(opponentTeams.deletedAt)))
       .then(rows => rows[0] ?? null);
     if (!team) {
       res.status(404).json({ error: 'Opponent team not found', code: 'NOT_FOUND' }); return;
@@ -171,7 +172,7 @@ router.post('/:id/players', async (req: Request<{ id: string }>, res, next) => {
     const team = await db
       .select()
       .from(opponentTeams)
-      .where(and(eq(opponentTeams.id, req.params.id), isNull(opponentTeams.deletedAt)))
+      .where(and(eq(opponentTeams.id, req.params.id), eq(opponentTeams.createdByUserId, req.userId), isNull(opponentTeams.deletedAt)))
       .then(rows => rows[0] ?? null);
     if (!team) {
       res.status(404).json({ error: 'Opponent team not found', code: 'NOT_FOUND' }); return;
@@ -198,6 +199,14 @@ router.put('/:id/players/:playerId', async (req: Request<{ id: string; playerId:
   try {
     const body = PlayerBody.partial().parse(req.body);
     const db = getDb();
+    const team = await db
+      .select()
+      .from(opponentTeams)
+      .where(and(eq(opponentTeams.id, req.params.id), eq(opponentTeams.createdByUserId, req.userId), isNull(opponentTeams.deletedAt)))
+      .then(rows => rows[0] ?? null);
+    if (!team) {
+      res.status(404).json({ error: 'Opponent team not found', code: 'NOT_FOUND' }); return;
+    }
     const existing = await db
       .select()
       .from(opponentPlayers)
@@ -234,6 +243,14 @@ router.put('/:id/players/:playerId', async (req: Request<{ id: string; playerId:
 router.delete('/:id/players/:playerId', async (req: Request<{ id: string; playerId: string }>, res, next) => {
   try {
     const db = getDb();
+    const team = await db
+      .select()
+      .from(opponentTeams)
+      .where(and(eq(opponentTeams.id, req.params.id), eq(opponentTeams.createdByUserId, req.userId), isNull(opponentTeams.deletedAt)))
+      .then(rows => rows[0] ?? null);
+    if (!team) {
+      res.status(404).json({ error: 'Opponent team not found', code: 'NOT_FOUND' }); return;
+    }
     const existing = await db
       .select()
       .from(opponentPlayers)
@@ -263,7 +280,7 @@ router.get('/:id/stats', async (req: Request<{ id: string }>, res, next) => {
     const team = await db
       .select()
       .from(opponentTeams)
-      .where(and(eq(opponentTeams.id, req.params.id), isNull(opponentTeams.deletedAt)))
+      .where(and(eq(opponentTeams.id, req.params.id), eq(opponentTeams.createdByUserId, req.userId), isNull(opponentTeams.deletedAt)))
       .then(rows => rows[0] ?? null);
     if (!team) {
       res.status(404).json({ error: 'Opponent team not found', code: 'NOT_FOUND' }); return;

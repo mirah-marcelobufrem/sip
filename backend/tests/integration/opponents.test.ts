@@ -153,3 +153,101 @@ describe('Opponent teams', () => {
     });
   });
 });
+
+describe('Opponent teams — ownership isolation', () => {
+  it('does not include another user\'s opponent team in the list', async () => {
+    const tokenA = await registerAndLogin('owner-a');
+    const tokenB = await registerAndLogin('owner-b');
+
+    const teamName = `Owner Isolation Team ${Date.now()}`;
+    await request(app)
+      .post('/api/v1/opponent-teams')
+      .set('Authorization', `Bearer ${tokenA}`)
+      .send({ name: teamName });
+
+    const res = await request(app)
+      .get('/api/v1/opponent-teams')
+      .set('Authorization', `Bearer ${tokenB}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.some((t: { name: string }) => t.name === teamName)).toBe(false);
+  });
+
+  it('returns 404 when another user requests, updates, or deletes a team by id', async () => {
+    const tokenA = await registerAndLogin('cross-a');
+    const tokenB = await registerAndLogin('cross-b');
+
+    const createRes = await request(app)
+      .post('/api/v1/opponent-teams')
+      .set('Authorization', `Bearer ${tokenA}`)
+      .send({ name: `Private Team ${Date.now()}` });
+    const teamId = createRes.body.id as string;
+
+    const getRes = await request(app)
+      .get(`/api/v1/opponent-teams/${teamId}`)
+      .set('Authorization', `Bearer ${tokenB}`);
+    expect(getRes.status).toBe(404);
+
+    const putRes = await request(app)
+      .put(`/api/v1/opponent-teams/${teamId}`)
+      .set('Authorization', `Bearer ${tokenB}`)
+      .send({ name: 'Hacked Name' });
+    expect(putRes.status).toBe(404);
+
+    const deleteRes = await request(app)
+      .delete(`/api/v1/opponent-teams/${teamId}`)
+      .set('Authorization', `Bearer ${tokenB}`);
+    expect(deleteRes.status).toBe(404);
+
+    // The owner can still see and manage their own team — it was never touched
+    const ownerGetRes = await request(app)
+      .get(`/api/v1/opponent-teams/${teamId}`)
+      .set('Authorization', `Bearer ${tokenA}`);
+    expect(ownerGetRes.status).toBe(200);
+    expect(ownerGetRes.body.name).toBe(createRes.body.name);
+  });
+
+  it('returns 404 when another user lists, adds, updates, deletes players, or reads stats for a team they do not own', async () => {
+    const tokenA = await registerAndLogin('roster-a');
+    const tokenB = await registerAndLogin('roster-b');
+
+    const createRes = await request(app)
+      .post('/api/v1/opponent-teams')
+      .set('Authorization', `Bearer ${tokenA}`)
+      .send({ name: `Roster Team ${Date.now()}` });
+    const teamId = createRes.body.id as string;
+
+    const playerRes = await request(app)
+      .post(`/api/v1/opponent-teams/${teamId}/players`)
+      .set('Authorization', `Bearer ${tokenA}`)
+      .send({ firstName: 'Owner', lastName: 'Player', jerseyNumber: 23 });
+    const playerId = playerRes.body.id as string;
+
+    const listRes = await request(app)
+      .get(`/api/v1/opponent-teams/${teamId}/players`)
+      .set('Authorization', `Bearer ${tokenB}`);
+    expect(listRes.status).toBe(404);
+
+    const addRes = await request(app)
+      .post(`/api/v1/opponent-teams/${teamId}/players`)
+      .set('Authorization', `Bearer ${tokenB}`)
+      .send({ firstName: 'Intruder', lastName: 'Player' });
+    expect(addRes.status).toBe(404);
+
+    const updateRes = await request(app)
+      .put(`/api/v1/opponent-teams/${teamId}/players/${playerId}`)
+      .set('Authorization', `Bearer ${tokenB}`)
+      .send({ jerseyNumber: 99 });
+    expect(updateRes.status).toBe(404);
+
+    const deleteRes = await request(app)
+      .delete(`/api/v1/opponent-teams/${teamId}/players/${playerId}`)
+      .set('Authorization', `Bearer ${tokenB}`);
+    expect(deleteRes.status).toBe(404);
+
+    const statsRes = await request(app)
+      .get(`/api/v1/opponent-teams/${teamId}/stats`)
+      .set('Authorization', `Bearer ${tokenB}`);
+    expect(statsRes.status).toBe(404);
+  });
+});
