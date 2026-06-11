@@ -57,6 +57,7 @@ export interface Game {
   notes: string | null;
   currentPossessionTeamId: string | null;
   possessionArrowTeamId: string | null;
+  tournamentId: string | null;
 }
 
 export interface StatEvent {

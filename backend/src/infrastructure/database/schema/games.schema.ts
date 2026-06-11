@@ -1,6 +1,7 @@
 import { integer, jsonb, pgEnum, pgTable, text, timestamp, uuid } from 'drizzle-orm/pg-core';
 import { teams } from './teams.schema.js';
 import { opponentTeams } from './opponents.schema.js';
+import { tournaments } from './tournaments.schema.js';
 
 export const gameFormatEnum = pgEnum('game_format', ['quarters', 'halves']);
 export const gameStatusEnum = pgEnum('game_status', [
@@ -41,6 +42,7 @@ export const games = pgTable('games', {
   currentClockSeconds: integer('current_clock_seconds'),
   currentPossessionTeamId: uuid('current_possession_team_id').references(() => teams.id),
   possessionArrowTeamId: uuid('possession_arrow_team_id').references(() => teams.id),
+  tournamentId: uuid('tournament_id').references(() => tournaments.id, { onDelete: 'set null' }),
   status: gameStatusEnum('status').default('scheduled').notNull(),
   notes: text('notes'),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),

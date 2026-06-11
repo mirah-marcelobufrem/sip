@@ -4,6 +4,7 @@ import { randomBytes } from 'crypto';
 import { eq, and, isNull, gt } from 'drizzle-orm';
 import { getDb } from '../../infrastructure/database/connection.js';
 import { DrizzleTeamRepository, DrizzleUserTeamRoleRepository } from '../../infrastructure/database/repositories/team.repository.js';
+import { DrizzleTournamentRepository } from '../../infrastructure/database/repositories/tournament.repository.js';
 import { authenticate } from '../middleware/auth.middleware.js';
 import { invitations } from '../../infrastructure/database/schema/users.schema.js';
 
@@ -103,6 +104,16 @@ router.get('/:id/members', async (req, res, next) => {
     const db = getDb();
     const members = await new DrizzleUserTeamRoleRepository(db).findByTeam(req.params.id);
     res.json(members);
+  } catch (err) { next(err); }
+});
+
+router.get('/:id/tournaments', async (req, res, next) => {
+  try {
+    const db = getDb();
+    const repo = new DrizzleTournamentRepository(db);
+    await repo.findOrCreateFriendlyForTeam(req.params.id);
+    const tournaments = await repo.findByTeam(req.params.id);
+    res.json(tournaments);
   } catch (err) { next(err); }
 });
 

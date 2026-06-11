@@ -2,7 +2,7 @@ import type { Game, StatEvent, LineupSnapshot, StatType } from '../entities/game
 
 export interface IGameRepository {
   findById(id: string): Promise<Game | null>;
-  findByTeam(teamId: string, filters?: { status?: string }): Promise<Game[]>;
+  findByTeam(teamId: string, filters?: { status?: string; tournamentId?: string }): Promise<Game[]>;
   create(data: Omit<Game, 'id'>): Promise<Game>;
   update(id: string, data: Partial<Game>): Promise<Game>;
   delete(id: string): Promise<void>;

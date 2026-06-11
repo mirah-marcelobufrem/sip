@@ -3,6 +3,7 @@ import { randomBytes } from 'crypto';
 import type { Db } from '../connection.js';
 import { tournaments, tournamentGames } from '../schema/tournaments.schema.js';
 import type { Tournament, TournamentGame, TournamentTeamEntry } from '../schema/tournaments.schema.js';
+import type { ITournamentRepository } from '../../../domain/repositories/tournament.repository.js';
 
 export { Tournament, TournamentGame, TournamentTeamEntry };
 
@@ -17,14 +18,37 @@ export interface TournamentGameRow {
   createdAt: Date;
 }
 
-export class DrizzleTournamentRepository {
+export class DrizzleTournamentRepository implements ITournamentRepository {
   constructor(private db: Db) {}
 
   async findAll(): Promise<Tournament[]> {
     return this.db
       .select()
       .from(tournaments)
-      .where(isNull(tournaments.deletedAt))
+      .where(and(isNull(tournaments.deletedAt), isNull(tournaments.teamId)))
+      .orderBy(tournaments.createdAt);
+  }
+
+  async findOrCreateFriendlyForTeam(teamId: string): Promise<{ id: string; name: string }> {
+    const existing = await this.db
+      .select({ id: tournaments.id, name: tournaments.name })
+      .from(tournaments)
+      .where(and(eq(tournaments.teamId, teamId), eq(tournaments.name, 'Friendly'), isNull(tournaments.deletedAt)))
+      .limit(1);
+    if (existing[0]) return existing[0];
+
+    const rows = await this.db
+      .insert(tournaments)
+      .values({ name: 'Friendly', teamId, format: 'mixed', numTeams: 1, teams: [], status: 'active' })
+      .returning({ id: tournaments.id, name: tournaments.name });
+    return rows[0]!;
+  }
+
+  async findByTeam(teamId: string): Promise<{ id: string; name: string }[]> {
+    return this.db
+      .select({ id: tournaments.id, name: tournaments.name })
+      .from(tournaments)
+      .where(and(eq(tournaments.teamId, teamId), isNull(tournaments.deletedAt)))
       .orderBy(tournaments.createdAt);
   }
 
