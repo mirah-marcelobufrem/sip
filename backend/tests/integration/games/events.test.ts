@@ -219,3 +219,77 @@ describe('PATCH /api/v1/games/:gameId/events/:eventId', () => {
     expect(res.status).toBe(401);
   });
 });
+
+describe('events membership guard (IDOR)', () => {
+  it('returns 403 when an authenticated non-member records an event', async () => {
+    const ownerToken = await registerAndLogin('guard-owner');
+    const { gameId } = await createTeamAndGame(ownerToken);
+    const intruderToken = await registerAndLogin('guard-intruder');
+
+    const res = await request(app)
+      .post(`/api/v1/games/${gameId}/events`)
+      .set('Authorization', `Bearer ${intruderToken}`)
+      .send({ period: 1, statType: '2PM' });
+
+    expect(res.status).toBe(403);
+
+    // The game log must remain empty for the owner
+    const logRes = await request(app)
+      .get(`/api/v1/games/${gameId}/log`)
+      .set('Authorization', `Bearer ${ownerToken}`);
+    expect(logRes.body).toHaveLength(0);
+  });
+
+  it('returns 403 when an authenticated non-member deletes an event', async () => {
+    const ownerToken = await registerAndLogin('guard-del-owner');
+    const { gameId } = await createTeamAndGame(ownerToken);
+
+    const createRes = await request(app)
+      .post(`/api/v1/games/${gameId}/events`)
+      .set('Authorization', `Bearer ${ownerToken}`)
+      .send({ period: 1, statType: '2PM' });
+    const eventId = createRes.body.id as string;
+
+    const intruderToken = await registerAndLogin('guard-del-intruder');
+    const res = await request(app)
+      .delete(`/api/v1/games/${gameId}/events/${eventId}`)
+      .set('Authorization', `Bearer ${intruderToken}`);
+
+    expect(res.status).toBe(403);
+
+    // The event must still exist for the owner
+    const logRes = await request(app)
+      .get(`/api/v1/games/${gameId}/log`)
+      .set('Authorization', `Bearer ${ownerToken}`);
+    const ids = (logRes.body as Array<{ id: string }>).map((e) => e.id);
+    expect(ids).toContain(eventId);
+  });
+
+  it('returns 404 when recording an event on a non-existent game', async () => {
+    const token = await registerAndLogin('guard-404');
+
+    const res = await request(app)
+      .post('/api/v1/games/00000000-0000-0000-0000-000000000777/events')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ period: 1, statType: '2PM' });
+
+    expect(res.status).toBe(404);
+  });
+
+  it('still allows a team member to record and delete events', async () => {
+    const token = await registerAndLogin('guard-member');
+    const { gameId } = await createTeamAndGame(token);
+
+    const createRes = await request(app)
+      .post(`/api/v1/games/${gameId}/events`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({ period: 1, statType: '2PM' });
+    expect(createRes.status).toBe(201);
+
+    const deleteRes = await request(app)
+      .delete(`/api/v1/games/${gameId}/events/${createRes.body.id}`)
+      .set('Authorization', `Bearer ${token}`);
+    expect(deleteRes.status).toBe(200);
+    expect(deleteRes.body.deletedIds).toEqual([createRes.body.id]);
+  });
+});

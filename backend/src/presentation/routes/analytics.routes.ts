@@ -14,6 +14,7 @@ import {
   computePer36,
   classifyMatchupResult,
   computeMatchupSummary,
+  formatMinutesPlayed,
 } from '../../domain/stat-calculators.js';
 
 const TREND_STAT_KEYS = ['pts', 'ast', 'reb', 'fgm', 'fga', 'stl', 'blk', 'to', 'pf', 'oreb', 'dreb'] as const;
@@ -89,6 +90,16 @@ router.get('/teams/:teamId/players/season-stats', async (req: Request<{ teamId: 
         box.gamesPlayed = gamesPlayed;
         const derived = deriveStats(box);
 
+        // I-04 — FIBA MET-1 minutes display. Season aggregate: the rounding
+        // cap is the regulation length of one game times games played
+        // (per-game settings taken from the first filtered game).
+        const perGameMaxSeconds =
+          (games[0]?.numPeriods ?? 4) * (games[0]?.periodDurationMinutes ?? 10) * 60;
+        const minutesDisplay = formatMinutesPlayed(
+          box.minSeconds,
+          perGameMaxSeconds * Math.max(gamesPlayed, 1),
+        );
+
         if (usePer36) {
           const per36 = computePer36(box);
           if (per36 !== null) {
@@ -97,7 +108,7 @@ router.get('/teams/:teamId/players/season-stats', async (req: Request<{ teamId: 
           }
         }
 
-        return { player, box, derived, gamesPlayed };
+        return { player, box, derived, gamesPlayed, minutesDisplay };
       }),
     );
 

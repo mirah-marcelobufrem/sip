@@ -41,6 +41,11 @@ interface Game {
   // Possession tracking (FIBA Sprint A1) — may be absent until the backend lands
   currentPossessionTeamId?: string | null;
   possessionArrowTeamId?: string | null;
+  // Foul bonus tracking (FIBA Sprint A2) — may be absent until the backend lands
+  homeTeamFoulsThisPeriod?: number;
+  awayTeamFoulsThisPeriod?: number;
+  homeInBonus?: boolean;
+  awayInBonus?: boolean;
 }
 
 const STAT_BUTTONS: { type: StatType; label: string; color: string }[] = [
@@ -60,7 +65,6 @@ const STAT_BUTTONS: { type: StatType; label: string; color: string }[] = [
   { type: 'TF', label: 'Tech', color: 'bg-gray-700 hover:bg-gray-800' },
 ];
 
-const FOUL_BONUS_THRESHOLD = 5;
 const SHOT_STATS = new Set<StatType>(['2PM', '2PA', '3PM', '3PA']);
 
 function calcScore(events: StatEvent[], teamId: string | null): number {
@@ -73,10 +77,23 @@ function calcScore(events: StatEvent[], teamId: string | null): number {
   }, 0);
 }
 
-function calcFouls(events: StatEvent[], teamId: string | null, period: number): number {
-  return events.filter(
-    (e) => e.teamId === teamId && e.period === period && e.statType === 'PF',
-  ).length;
+// Foul bonus state comes from GET /games/:gameId (computed in the domain layer).
+// Defensive until the backend contract lands: undefined → 0 fouls / not in bonus.
+function TeamFoulStatus({ side, fouls, inBonus }: { side: 'home' | 'away'; fouls?: number; inBonus?: boolean }) {
+  return (
+    <div className={`text-xs font-semibold mt-0.5 ${inBonus ? 'text-red-400' : 'text-gray-500'}`}>
+      {inBonus ? (
+        <span
+          data-testid={`${side}-bonus`}
+          className="bg-red-500/20 text-red-400 px-1.5 py-0.5 rounded text-xs font-bold"
+        >
+          BONUS
+        </span>
+      ) : (
+        <span data-testid={`${side}-team-fouls`}>{fouls ?? 0} fouls</span>
+      )}
+    </div>
+  );
 }
 
 function PlayerButton({
@@ -120,6 +137,8 @@ export default function LiveRecordingPage() {
   const [subOut, setSubOut] = useState<string>('');
   const [subIn, setSubIn] = useState<string>('');
   const [showPeriodConfirm, setShowPeriodConfirm] = useState(false);
+  const [teamReboundOpen, setTeamReboundOpen] = useState(false);
+  const [teamReboundTeam, setTeamReboundTeam] = useState<'home' | 'away'>('home');
   const [pendingShot, setPendingShot] = useState<{
     playerId: string;
     teamId: string;
@@ -156,8 +175,6 @@ export default function LiveRecordingPage() {
 
   const homeScore = useMemo(() => calcScore(events, game?.homeTeamId ?? null), [events, game]);
   const awayScore = useMemo(() => calcScore(events, game?.awayTeamId ?? null), [events, game]);
-  const homeFouls = useMemo(() => calcFouls(events, game?.homeTeamId ?? null, period), [events, game, period]);
-  const awayFouls = useMemo(() => calcFouls(events, game?.awayTeamId ?? null, period), [events, game, period]);
 
   const activeHome = homePlayers.filter((p) => !p.status || p.status === 'active');
   const activeAway = awayPlayers.filter((p) => !p.status || p.status === 'active');
@@ -168,7 +185,14 @@ export default function LiveRecordingPage() {
   });
 
   const recordMutation = useMutation({
-    mutationFn: (payload: { playerId: string; teamId: string; statType: StatType; xCourt?: number; yCourt?: number }) =>
+    mutationFn: (payload: {
+      playerId: string | null;
+      teamId: string;
+      statType: StatType;
+      xCourt?: number;
+      yCourt?: number;
+      isTeamRebound?: boolean;
+    }) =>
       api.post<StatEvent>(`/games/${gameId}/events`, {
         period,
         statType: payload.statType,
@@ -176,12 +200,15 @@ export default function LiveRecordingPage() {
         teamId: payload.teamId,
         xCourt: payload.xCourt,
         yCourt: payload.yCourt,
+        // Only sent for team rebounds (playerId must be null in that case)
+        ...(payload.isTeamRebound ? { isTeamRebound: true } : {}),
       }),
     onSuccess: (event) => {
       undoStack.current = [event.id, ...undoStack.current.slice(0, 19)];
       setSelectedStat(null);
       setSelectedTeam(null);
       setPendingShot(null);
+      setTeamReboundOpen(false);
       queryClient.invalidateQueries({ queryKey: ['game-log', gameId] });
       // Possession fields live on the game row — refresh after each event
       queryClient.invalidateQueries({ queryKey: ['game', gameId] });
@@ -258,6 +285,17 @@ export default function LiveRecordingPage() {
     [selectedStat, game, recordMutation],
   );
 
+  // Team rebound (FIBA STAT-4, I-05.3): credited to the team, not a player.
+  // No player selection required — playerId is null + isTeamRebound flag.
+  const handleTeamRebound = useCallback(
+    (statType: 'OREB' | 'DREB') => {
+      const teamId = teamReboundTeam === 'home' ? game?.homeTeamId : game?.awayTeamId;
+      if (!teamId) return;
+      recordMutation.mutate({ playerId: null, teamId, statType, isTeamRebound: true });
+    },
+    [teamReboundTeam, game, recordMutation],
+  );
+
   const handleUndo = useCallback(() => {
     const lastId = undoStack.current[0];
     if (lastId) undoMutation.mutate(lastId);
@@ -289,11 +327,7 @@ export default function LiveRecordingPage() {
         <div className="flex-1 text-center">
           <div className="text-3xl font-bold tabular-nums">{homeScore}</div>
           <div className="text-xs text-gray-400">HOME</div>
-          <div className={`text-xs font-semibold mt-0.5 ${homeFouls >= FOUL_BONUS_THRESHOLD ? 'text-red-400' : 'text-gray-500'}`}>
-            {homeFouls >= FOUL_BONUS_THRESHOLD
-              ? <span className="bg-red-500/20 text-red-400 px-1.5 py-0.5 rounded text-xs font-bold">BONUS</span>
-              : `${homeFouls} fouls`}
-          </div>
+          <TeamFoulStatus side="home" fouls={game?.homeTeamFoulsThisPeriod} inBonus={game?.homeInBonus} />
         </div>
 
         {/* Period + controls */}
@@ -326,11 +360,7 @@ export default function LiveRecordingPage() {
         <div className="flex-1 text-center">
           <div className="text-3xl font-bold tabular-nums">{awayScore}</div>
           <div className="text-xs text-gray-400">AWAY</div>
-          <div className={`text-xs font-semibold mt-0.5 ${awayFouls >= FOUL_BONUS_THRESHOLD ? 'text-red-400' : 'text-gray-500'}`}>
-            {awayFouls >= FOUL_BONUS_THRESHOLD
-              ? <span className="bg-red-500/20 text-red-400 px-1.5 py-0.5 rounded text-xs font-bold">BONUS</span>
-              : `${awayFouls} fouls`}
-          </div>
+          <TeamFoulStatus side="away" fouls={game?.awayTeamFoulsThisPeriod} inBonus={game?.awayInBonus} />
         </div>
       </div>
 
@@ -405,6 +435,52 @@ export default function LiveRecordingPage() {
             {btn.label}
           </button>
         ))}
+
+        {/* Team rebound (secondary — no player attribution; full guided prompt in S08) */}
+        <button
+          data-testid="team-rebound-btn"
+          onClick={() => setTeamReboundOpen((o) => !o)}
+          className={`col-span-2 py-3.5 rounded-xl font-medium text-sm text-gray-300 bg-gray-800 border border-gray-600 hover:bg-gray-700 transition-all active:scale-95 ${
+            teamReboundOpen ? 'ring-2 ring-gray-400' : ''
+          }`}
+        >
+          Team Reb
+        </button>
+
+        {teamReboundOpen && (
+          <div className="col-span-4 flex items-center gap-2 bg-gray-800 border border-gray-700 rounded-xl p-2">
+            <div className="flex rounded-lg overflow-hidden border border-gray-700 text-xs font-medium">
+              <button
+                onClick={() => setTeamReboundTeam('home')}
+                className={`px-3 py-1.5 ${teamReboundTeam === 'home' ? 'bg-gray-600 text-white' : 'bg-gray-900 text-gray-400'}`}
+              >
+                Home
+              </button>
+              <button
+                onClick={() => setTeamReboundTeam('away')}
+                className={`px-3 py-1.5 ${teamReboundTeam === 'away' ? 'bg-gray-600 text-white' : 'bg-gray-900 text-gray-400'}`}
+              >
+                Away
+              </button>
+            </div>
+            <button
+              data-testid="team-rebound-oreb"
+              onClick={() => handleTeamRebound('OREB')}
+              disabled={recordMutation.isPending}
+              className="flex-1 py-1.5 rounded-lg text-xs font-semibold text-gray-200 bg-gray-700 hover:bg-gray-600 disabled:opacity-40"
+            >
+              Team OREB
+            </button>
+            <button
+              data-testid="team-rebound-dreb"
+              onClick={() => handleTeamRebound('DREB')}
+              disabled={recordMutation.isPending}
+              className="flex-1 py-1.5 rounded-lg text-xs font-semibold text-gray-200 bg-gray-700 hover:bg-gray-600 disabled:opacity-40"
+            >
+              Team DREB
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Bottom bar */}

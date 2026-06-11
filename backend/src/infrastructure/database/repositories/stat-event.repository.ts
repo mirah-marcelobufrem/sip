@@ -156,6 +156,8 @@ export class DrizzleStatEventRepository implements IStatEventRepository {
       linkedActionId: row.linkedActionId,
       linkRole: row.linkRole as StatEvent['linkRole'],
       waveSubGroupId: row.waveSubGroupId,
+      isTeamRebound: row.isTeamRebound,
+      isBenchFoul: row.isBenchFoul,
       createdAt: row.createdAt,
     };
   }

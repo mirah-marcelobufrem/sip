@@ -47,6 +47,8 @@ export async function recordSubstitution(
     linkedActionId: null,
     linkRole: null,
     waveSubGroupId: null,
+    isTeamRebound: false,
+    isBenchFoul: false,
   });
 
   await statEventRepo.create({
@@ -64,6 +66,8 @@ export async function recordSubstitution(
     linkedActionId: null,
     linkRole: null,
     waveSubGroupId: null,
+    isTeamRebound: false,
+    isBenchFoul: false,
   });
 
   return snapshot;

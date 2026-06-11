@@ -12,7 +12,7 @@ export const RecordStatEventInput = z.object({
   gameId: z.string().uuid(),
   period: z.number().int().min(1),
   clockTimeSeconds: z.number().int().optional(),
-  playerId: z.string().uuid().optional(),
+  playerId: z.string().uuid().nullish(),
   teamId: z.string().uuid().optional(),
   statType: z.enum([
     '2PM', '2PA', '3PM', '3PA', 'FTM', 'FTA',
@@ -29,6 +29,17 @@ export const RecordStatEventInput = z.object({
     'rebound_after_miss', 'assist_after_made', 'turnover_after_steal',
     'foul_drawn', 'ft_for_foul', 'to_after_offensive_foul', 'wave_sub_member',
   ]).optional(),
+  isTeamRebound: z.boolean().default(false),
+  isBenchFoul: z.boolean().default(false),
+}).superRefine((data, ctx) => {
+  // BR-STAT-4.3 — a team rebound is never credited to an individual player
+  if (data.isTeamRebound && data.playerId != null) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['playerId'],
+      message: 'A team rebound (isTeamRebound = true) must not carry a playerId',
+    });
+  }
 });
 
 export type RecordStatEventInput = z.infer<typeof RecordStatEventInput>;
@@ -90,6 +101,8 @@ export async function recordStatEvent(
     linkedActionId: input.linkedActionId ?? null,
     linkRole,
     waveSubGroupId: null,
+    isTeamRebound: input.isTeamRebound,
+    isBenchFoul: input.isBenchFoul,
   });
 
   // F-01: possession tracking (only when the possession dependencies are wired).

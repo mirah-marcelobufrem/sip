@@ -219,6 +219,72 @@ describe('recordStatEvent', () => {
     );
   });
 
+  it('rejects a team rebound that carries a playerId (BR-STAT-4.3)', async () => {
+    await expect(
+      recordStatEvent(
+        {
+          gameId: GAME_ID,
+          period: 1,
+          statType: 'DREB',
+          teamId: TEAM_ID,
+          playerId: PLAYER_ID,
+          isTeamRebound: true,
+        },
+        makeStatRepo(),
+        makeLineupRepo(),
+      ),
+    ).rejects.toThrow(/team rebound/i);
+  });
+
+  it('persists a team rebound without a playerId', async () => {
+    const statRepo = makeStatRepo();
+
+    await recordStatEvent(
+      { gameId: GAME_ID, period: 1, statType: 'DREB', teamId: TEAM_ID, isTeamRebound: true },
+      statRepo,
+      makeLineupRepo(),
+    );
+
+    expect(statRepo.create).toHaveBeenCalledWith(
+      expect.objectContaining({ isTeamRebound: true, playerId: null }),
+    );
+  });
+
+  it('accepts an explicit playerId: null for a team rebound (live UI payload)', async () => {
+    const statRepo = makeStatRepo();
+
+    await recordStatEvent(
+      {
+        gameId: GAME_ID,
+        period: 1,
+        statType: 'OREB',
+        teamId: TEAM_ID,
+        playerId: null,
+        isTeamRebound: true,
+      },
+      statRepo,
+      makeLineupRepo(),
+    );
+
+    expect(statRepo.create).toHaveBeenCalledWith(
+      expect.objectContaining({ isTeamRebound: true, playerId: null }),
+    );
+  });
+
+  it('persists isBenchFoul for a coach technical foul', async () => {
+    const statRepo = makeStatRepo();
+
+    await recordStatEvent(
+      { gameId: GAME_ID, period: 1, statType: 'TF', teamId: TEAM_ID, isBenchFoul: true },
+      statRepo,
+      makeLineupRepo(),
+    );
+
+    expect(statRepo.create).toHaveBeenCalledWith(
+      expect.objectContaining({ isBenchFoul: true }),
+    );
+  });
+
   it('warns (without failing) when statType does not match the court location', async () => {
     const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
 
