@@ -25,12 +25,15 @@ test.describe('Opponent Teams', () => {
     // Modal heading is "Add Opponent Team"
     await expect(page.getByRole('heading', { name: 'Add Opponent Team' })).toBeVisible();
 
+    // Unique name: opponent teams are currently visible across users, so
+    // fixed names collide with rows left by earlier runs (strict mode).
+    const name = `Test Rivals ${Date.now()}`;
     // The label includes an asterisk; use a partial match
-    await page.getByLabel(/team name/i).fill('Test Rivals');
+    await page.getByLabel(/team name/i).fill(name);
     // Submit button is "Add Team"
     await page.getByRole('button', { name: 'Add Team' }).click();
 
-    await expect(page.getByText('Test Rivals')).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByText(name)).toBeVisible({ timeout: 10_000 });
   });
 
   test('clicking an opponent navigates to its profile', async ({ page }) => {
@@ -40,15 +43,16 @@ test.describe('Opponent Teams', () => {
     await page.goto('/opponent-teams');
     await page.waitForLoadState('networkidle');
 
-    // Create the opponent first
+    // Create the opponent first (unique name — see note in the create test)
+    const name = `Navigate Rivals ${Date.now()}`;
     await page.getByRole('button', { name: '+ Add Opponent' }).click();
-    await page.getByLabel(/team name/i).fill('Navigate Rivals');
+    await page.getByLabel(/team name/i).fill(name);
     await page.getByRole('button', { name: 'Add Team' }).click();
-    await page.getByText('Navigate Rivals').waitFor();
+    await page.getByText(name).waitFor();
 
     // Click on the row (avoid the action buttons column)
-    const row = page.getByRole('row', { name: /navigate rivals/i });
-    await row.getByText('Navigate Rivals').click();
+    const row = page.getByRole('row', { name });
+    await row.getByText(name).click();
 
     await page.waitForURL(/\/opponent-teams\/[0-9a-f-]+/, { timeout: 10_000 });
     await expect(page).toHaveURL(/\/opponent-teams\/[0-9a-f-]+/);
