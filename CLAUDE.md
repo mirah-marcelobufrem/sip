@@ -354,6 +354,7 @@ import type { Baz } from '@domain/entities/game.entity.js';  // correct
 - **OnOffPage** (`/teams/:teamId/analytics/on-off`): player selector dropdown, On/Off split table with PTS / OPP PTS / +/- columns and a Delta row.
 - **OpponentTeamsPage** (`/opponent-teams`): CRUD list with create/edit modal (name, league, notes). Row click navigates to profile. "Add Opponent Team" modal heading; submit button is "Add Team".
 - **OpponentProfilePage** (`/opponent-teams/:id`): team header + players table. Add/Edit per player (jersey, position, notes). Two independent TanStack queries (team detail + players). Optional opponent-team fields (`logo`, `homeCourt`, `contactName`, `contactEmail`) accept `null` — Zod schemas use `.optional().nullable()`.
+- **Opponent team ownership**: `opponent_teams.createdByUserId` (nullable FK → `users.id`, mirrors the `scouting_reports.authorUserId` pattern) scopes every `/opponent-teams*` route to `req.userId`. `GET /` filters by `eq(opponentTeams.createdByUserId, req.userId)`; `POST /` sets it on insert; all single-team and nested-player routes (`GET/PUT/DELETE /:id`, `GET/POST /:id/players`, `PUT/DELETE /:id/players/:playerId`, `GET /:id/stats`) add `eq(opponentTeams.createdByUserId, req.userId)` to the team lookup and return 404 (not 403) for teams owned by another user, to avoid leaking existence. Rows created before this column existed (`createdByUserId IS NULL`) are invisible under the new scoping.
 - **stat_events `seq` column** (double precision): backfilled from `created_at` epoch. `POST /events` accepts optional `insertAfterId` to midpoint-insert between two events; precision guard prevents collisions. Never compute `seq` inline — always derived from sibling rows. The repository orders events by `period`, then `COALESCE(seq, epoch(created_at)*1000)`, then `created_at` — keep this ordering when adding queries over events.
 - **`computePer36(box)`** in `stat-calculators.ts`: normalises all counting stats to 36 minutes of play. Returns `null` if `< 30` seconds played. Used by season stats API when `?per36=true`.
 - **Invite token flow**: `POST /teams/:id/invitations` generates a 7-day token logged to console (no SMTP). `POST /invitations/accept` joins the team or returns `{ requiresAuth: true }` if the caller has no session. Email delivery is not yet implemented.
@@ -424,7 +425,7 @@ cd frontend && npm run lint   # uses frontend/eslint.config.js
 main ← release/* ← develop ← feature/*
 ```
 
-Current state: Phase 2 (FIBA Statistical Foundation) complete; v1.6.0 added game↔tournament linking. Released through `v1.6.0` (tagged on `main`). All releases back-merged into `develop`. Active work starts from a new `feature/*` branch off `develop`.
+Current state: Phase 2 (FIBA Statistical Foundation) complete; v1.6.0 added game↔tournament linking; v1.6.1 hotfixed the opponents ownership-scoping security gap. Released through `v1.6.1` (tagged on `main`). All releases back-merged into `develop`. Active work starts from a new `feature/*` branch off `develop`.
 
 | Release | Sprints | Key content |
 | --- | --- | --- |
@@ -435,5 +436,6 @@ Current state: Phase 2 (FIBA Statistical Foundation) complete; v1.6.0 added game
 | v1.4.1 | debt | ESLint 9 flat config, Drizzle snapshot regeneration, GameSetupWizard Step 3 wiring, CI/CD fixes, 30 Playwright E2E tests |
 | v1.5.0 | S05+S06 | FIBA foundation: possession tracking + sequences, linked actions + cascade delete, auto 2pt/3pt classification, 14 BR-STAT validators, MET-1 minutes, team rebounds, domain foul bonus, events-route membership guard |
 | v1.6.0 | — | Game↔tournament linking: `tournament_id` on `games`, per-team auto "Friendly" tournament (`tournaments.team_id` + unique index), `createGame` use case, `GET /teams/:teamId/tournaments`, tournament filter + badge on GamesPage, tournament selector on GameSetupWizard |
+| v1.6.1 | hotfix | **Security**: `opponent_teams.createdByUserId` ownership column + migration `0008`; all 10 `/opponent-teams*` routes scoped to `req.userId`, 404 on cross-user access; +3 integration tests, +1 Playwright isolation test |
 
 Never commit directly to `main` or `develop`.
