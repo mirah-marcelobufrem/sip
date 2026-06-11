@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What This Is
 
-SIP Scout — basketball scouting and live stat tracking app. Full spec: [.work/project_spec.txt](.work/project_spec.txt). Implementation plan with 6 waves × 12 sprints: [.work/plan.txt](.work/plan.txt).
+SIP Scout — basketball scouting and live stat tracking app. Original spec: [.work/project_spec.txt](.work/project_spec.txt). Active plan: [.work/roadmap.txt](.work/roadmap.txt) (v3.0, 18 sprints — supersedes the original `plan.txt` and the standalone FIBA implementation plan). For FIBA stat-correctness work (S07+), the reverse-engineered FIBA LiveStats reference spec lives at [.work/specs/](.work/specs/) and has its own routing `CLAUDE.md`.
 
 ## Tech Stack
 
