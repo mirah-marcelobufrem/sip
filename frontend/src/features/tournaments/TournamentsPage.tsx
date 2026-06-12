@@ -14,6 +14,11 @@ interface Tournament {
   shareToken: string | null;
 }
 
+interface TeamOption {
+  id: string;
+  name: string;
+}
+
 const FORMAT_LABEL: Record<string, string> = {
   single_elimination: 'Single Elim',
   double_elimination: 'Double Elim',
@@ -27,13 +32,33 @@ const STATUS_COLOR: Record<string, string> = {
   completed: 'bg-gray-100 text-gray-500 dark:bg-gray-800 dark:text-gray-400',
 };
 
+function TeamToggle({ name, seed, onClick }: { name: string; seed: number | null; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`flex items-center gap-2 rounded-lg px-3 py-2 text-sm text-left transition-colors ${
+        seed
+          ? 'ring-2 ring-brand-500 bg-brand-50 dark:bg-brand-900/20 text-gray-900 dark:text-gray-100'
+          : 'border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800 text-gray-700 dark:text-gray-300'
+      }`}
+    >
+      {seed && (
+        <span className="w-5 h-5 flex items-center justify-center rounded-full bg-brand-600 text-white text-xs font-bold shrink-0">
+          {seed}
+        </span>
+      )}
+      <span className="font-medium truncate">{name}</span>
+    </button>
+  );
+}
+
 export default function TournamentsPage() {
   const queryClient = useQueryClient();
   const [showCreate, setShowCreate] = useState(false);
   const [name, setName] = useState('');
   const [format, setFormat] = useState<string>('single_elimination');
-  const [numTeams, setNumTeams] = useState('8');
-  const [teamNames, setTeamNames] = useState('');
+  const [selectedTeamIds, setSelectedTeamIds] = useState<string[]>([]);
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
 
@@ -42,13 +67,27 @@ export default function TournamentsPage() {
     queryFn: () => api.get('/tournaments'),
   });
 
+  const { data: myTeams = [] } = useQuery<TeamOption[]>({
+    queryKey: ['teams'],
+    queryFn: () => api.get('/teams'),
+    enabled: showCreate,
+  });
+
+  const { data: opponentTeams = [] } = useQuery<TeamOption[]>({
+    queryKey: ['opponent-teams'],
+    queryFn: () => api.get('/opponent-teams'),
+    enabled: showCreate,
+  });
+
+  const allTeams = [...myTeams, ...opponentTeams];
+
   const createMutation = useMutation({
     mutationFn: (data: object) => api.post('/tournaments', data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['tournaments'] });
       setShowCreate(false);
-      setName(''); setFormat('single_elimination'); setNumTeams('8');
-      setTeamNames(''); setStartDate(''); setEndDate('');
+      setName(''); setFormat('single_elimination'); setSelectedTeamIds([]);
+      setStartDate(''); setEndDate('');
     },
   });
 
@@ -57,18 +96,20 @@ export default function TournamentsPage() {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['tournaments'] }),
   });
 
+  function toggleTeam(id: string) {
+    setSelectedTeamIds((prev) => (prev.includes(id) ? prev.filter((t) => t !== id) : [...prev, id]));
+  }
+
   function handleCreate(e: React.FormEvent) {
     e.preventDefault();
-    const n = parseInt(numTeams);
-    const lines = teamNames.split('\n').map((l) => l.trim()).filter(Boolean);
-    const teams = Array.from({ length: n }, (_, i) => ({
-      seed: i + 1,
-      teamName: lines[i] ?? `Team ${i + 1}`,
-    }));
+    const teams = selectedTeamIds.map((id, i) => {
+      const team = allTeams.find((t) => t.id === id);
+      return { seed: i + 1, teamId: id, teamName: team?.name ?? `Team ${i + 1}` };
+    });
     createMutation.mutate({
       name,
       format,
-      numTeams: n,
+      numTeams: teams.length,
       teams,
       startDate: startDate ? new Date(startDate).toISOString() : undefined,
       endDate: endDate ? new Date(endDate).toISOString() : undefined,
@@ -147,37 +188,44 @@ export default function TournamentsPage() {
                   className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg text-sm bg-white dark:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-brand-500"
                 />
               </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Format</label>
-                  <select
-                    value={format} onChange={(e) => setFormat(e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg text-sm bg-white dark:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-brand-500"
-                  >
-                    <option value="single_elimination">Single Elimination</option>
-                    <option value="double_elimination">Double Elimination</option>
-                    <option value="round_robin">Round Robin</option>
-                    <option value="mixed">Mixed</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Teams</label>
-                  <input
-                    type="number" min={2} max={64} value={numTeams}
-                    onChange={(e) => setNumTeams(e.target.value)} required
-                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg text-sm bg-white dark:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-brand-500"
-                  />
-                </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Format</label>
+                <select
+                  value={format} onChange={(e) => setFormat(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg text-sm bg-white dark:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-brand-500"
+                >
+                  <option value="single_elimination">Single Elimination</option>
+                  <option value="double_elimination">Double Elimination</option>
+                  <option value="round_robin">Round Robin</option>
+                  <option value="mixed">Mixed</option>
+                </select>
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                  Team names (one per line, seeded top to bottom)
+                  Teams (select at least 2, in seed order)
                 </label>
-                <textarea
-                  value={teamNames} onChange={(e) => setTeamNames(e.target.value)}
-                  rows={5} placeholder={'Team A\nTeam B\nTeam C…'}
-                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg text-sm bg-white dark:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-brand-500 resize-none"
-                />
+                {allTeams.length === 0 ? (
+                  <p className="text-sm text-gray-400 dark:text-gray-500 py-2">
+                    No teams available — add a team or opponent team first.
+                  </p>
+                ) : (
+                  <div className="grid grid-cols-2 gap-2 max-h-48 overflow-auto pr-1">
+                    {allTeams.map((team) => {
+                      const seed = selectedTeamIds.indexOf(team.id);
+                      return (
+                        <TeamToggle
+                          key={team.id}
+                          name={team.name}
+                          seed={seed === -1 ? null : seed + 1}
+                          onClick={() => toggleTeam(team.id)}
+                        />
+                      );
+                    })}
+                  </div>
+                )}
+                <p className="text-xs text-gray-400 dark:text-gray-500 pt-1">
+                  {selectedTeamIds.length} team{selectedTeamIds.length === 1 ? '' : 's'} selected
+                </p>
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
@@ -196,7 +244,7 @@ export default function TournamentsPage() {
               <div className="flex gap-2 justify-end">
                 <button type="button" onClick={() => setShowCreate(false)} className="px-4 py-2 text-sm text-gray-600 hover:text-gray-800">Cancel</button>
                 <button
-                  type="submit" disabled={createMutation.isPending}
+                  type="submit" disabled={createMutation.isPending || selectedTeamIds.length < 2}
                   className="px-4 py-2 bg-brand-600 hover:bg-brand-700 text-white rounded-lg text-sm font-medium disabled:opacity-60"
                 >
                   {createMutation.isPending ? 'Creating…' : 'Create Tournament'}

@@ -47,7 +47,7 @@ async function setupLiveGame(page: Page, suffix: string) {
 
   // Start the game and wait for the live recording UI
   await page.getByRole('button', { name: 'Start Game' }).click();
-  await expect(page.getByRole('button', { name: '2 Made' })).toBeVisible({ timeout: 10_000 });
+  await expect(page.getByRole('button', { name: 'Shot' })).toBeVisible({ timeout: 10_000 });
 }
 
 test.describe('Live recording — S06 FIBA Phase 3', () => {

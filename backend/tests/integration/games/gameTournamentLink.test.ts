@@ -116,6 +116,37 @@ describe('Game <-> Tournament link (default Friendly tournament)', () => {
     }
   });
 
+  it('includes global tournaments alongside the per-team Friendly tournament', async () => {
+    const token = await registerAndLogin('withglobal');
+    const teamId = await createTeam(token);
+
+    // Auto-create the Friendly tournament for this team
+    await createGame(token, teamId);
+
+    const globalRes = await request(app)
+      .post('/api/v1/tournaments')
+      .set('Authorization', `Bearer ${token}`)
+      .send({
+        name: `Global Cup ${Date.now()}`,
+        format: 'single_elimination',
+        numTeams: 2,
+        teams: [
+          { seed: 1, teamName: 'A' },
+          { seed: 2, teamName: 'B' },
+        ],
+      });
+    expect(globalRes.status).toBe(201);
+
+    const tournamentsRes = await request(app)
+      .get(`/api/v1/teams/${teamId}/tournaments`)
+      .set('Authorization', `Bearer ${token}`);
+    expect(tournamentsRes.status).toBe(200);
+    const ids = (tournamentsRes.body as Array<{ id: string; name: string }>).map((t) => t.id);
+    const names = (tournamentsRes.body as Array<{ id: string; name: string }>).map((t) => t.name);
+    expect(names).toContain('Friendly');
+    expect(ids).toContain(globalRes.body.id);
+  });
+
   it('does not leak per-team Friendly tournaments into the global tournaments list', async () => {
     const token = await registerAndLogin('global');
     const teamId = await createTeam(token);
