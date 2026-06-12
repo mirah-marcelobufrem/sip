@@ -427,7 +427,7 @@ cd frontend && npm run lint   # uses frontend/eslint.config.js
 main ← release/* ← develop ← feature/*
 ```
 
-Current state: Phase 2 (FIBA Statistical Foundation) complete; v1.6.0 added game↔tournament linking; v1.6.1 hotfixed the opponents ownership-scoping security gap. Released through `v1.6.1` (tagged on `main`). All releases back-merged into `develop`. Active work starts from a new `feature/*` branch off `develop`.
+Current state: Phase 2 (FIBA Statistical Foundation) complete; v1.6.0 added game↔tournament linking; v1.6.1 hotfixed the opponents ownership-scoping security gap; v1.7.0 reworked the live shot-recording flow and tournament team linking. Released through `v1.7.0` (tagged on `main`). All releases back-merged into `develop`. Active work starts from a new `feature/*` branch off `develop`.
 
 | Release | Sprints | Key content |
 | --- | --- | --- |
@@ -439,5 +439,6 @@ Current state: Phase 2 (FIBA Statistical Foundation) complete; v1.6.0 added game
 | v1.5.0 | S05+S06 | FIBA foundation: possession tracking + sequences, linked actions + cascade delete, auto 2pt/3pt classification, 14 BR-STAT validators, MET-1 minutes, team rebounds, domain foul bonus, events-route membership guard |
 | v1.6.0 | — | Game↔tournament linking: `tournament_id` on `games`, per-team auto "Friendly" tournament (`tournaments.team_id` + unique index), `createGame` use case, `GET /teams/:teamId/tournaments`, tournament filter + badge on GamesPage, tournament selector on GameSetupWizard |
 | v1.6.1 | hotfix | **Security**: `opponent_teams.createdByUserId` ownership column + migration `0008`; all 10 `/opponent-teams*` routes scoped to `req.userId`, 404 on cross-user access; +3 integration tests, +1 Playwright isolation test |
+| v1.7.0 | — | Live recording: consolidated 4-button shot entry into a single "Shot" button + court-tap MADE/MISS flow (`ButtonStat`). Tournaments: `findByTeam` now returns the union of a team's own tournaments and global tournaments so the GameSetupWizard dropdown lists all available tournaments; TournamentsPage "+ New Tournament" replaces free-text team entry with a `TeamToggle` multi-select over own + opponent teams, assigning seed order |
 
 Never commit directly to `main` or `develop`.
