@@ -25,7 +25,7 @@ async function createTournament(page: Page, name: string, teamA: string, teamB: 
   await page.getByRole('button', { name: '+ New Tournament' }).click();
   await expect(page.getByRole('heading', { name: 'New Tournament' })).toBeVisible();
 
-  await page.getByLabel('Name *').fill(name);
+  await page.getByPlaceholder(/city championship/i).fill(name);
 
   const teamAButton = page.getByRole('button', { name: teamA, exact: true });
   const teamBButton = page.getByRole('button', { name: teamB, exact: true });
