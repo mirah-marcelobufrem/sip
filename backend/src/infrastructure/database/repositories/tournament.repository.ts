@@ -1,4 +1,4 @@
-import { and, eq, isNull } from 'drizzle-orm';
+import { and, eq, isNull, or } from 'drizzle-orm';
 import { randomBytes } from 'crypto';
 import type { Db } from '../connection.js';
 import { tournaments, tournamentGames } from '../schema/tournaments.schema.js';
@@ -45,10 +45,12 @@ export class DrizzleTournamentRepository implements ITournamentRepository {
   }
 
   async findByTeam(teamId: string): Promise<{ id: string; name: string }[]> {
+    // Includes both this team's own tournaments (e.g. "Friendly") and global
+    // tournaments (team_id IS NULL) so games can be linked to any of them.
     return this.db
       .select({ id: tournaments.id, name: tournaments.name })
       .from(tournaments)
-      .where(and(eq(tournaments.teamId, teamId), isNull(tournaments.deletedAt)))
+      .where(and(or(eq(tournaments.teamId, teamId), isNull(tournaments.teamId)), isNull(tournaments.deletedAt)))
       .orderBy(tournaments.createdAt);
   }
 

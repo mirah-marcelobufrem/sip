@@ -51,7 +51,7 @@ async function setupLiveGame(page: Page, suffix: string) {
 
   // Start the game and wait for the live recording UI
   await page.getByRole('button', { name: 'Start Game' }).click();
-  await expect(page.getByRole('button', { name: '2 Made' })).toBeVisible({ timeout: 10_000 });
+  await expect(page.getByRole('button', { name: 'Shot' })).toBeVisible({ timeout: 10_000 });
 }
 
 /**
@@ -72,8 +72,8 @@ test.describe('Live recording — S05 FIBA Phase 2', () => {
   test('court picker auto-classifies 2pt vs 3pt and Override flips the banner', async ({ page }) => {
     await setupLiveGame(page, `live-class-${Date.now()}-${Math.floor(Math.random() * 1e6)}`);
 
-    // Select the made-2 stat, then the player → court picker opens
-    await page.getByRole('button', { name: '2 Made' }).click();
+    // Select the consolidated Shot button, then the player → court picker opens
+    await page.getByRole('button', { name: 'Shot' }).click();
     await page.getByRole('button', { name: /Recorder/ }).click();
     await expect(page.getByText('Tap the shot location')).toBeVisible();
 
@@ -94,8 +94,8 @@ test.describe('Live recording — S05 FIBA Phase 2', () => {
     await tapCourt(page, 0.5, 0.85);
     await expect(banner).toContainText('3-POINT SHOT');
 
-    // Confirm submits the derived stat type (3PM since the button was "2 Made" → made shot)
-    await page.getByRole('button', { name: /^Confirm 3PM$/ }).click();
+    // MADE confirms the shot with the derived stat type (3PM)
+    await page.getByRole('button', { name: /^MADE$/ }).click();
 
     // Picker closes and the event lands in the game log
     await expect(banner).toBeHidden();
@@ -117,12 +117,12 @@ test.describe('Live recording — S05 FIBA Phase 2', () => {
     await expect(arrow).toContainText('HOME BALL');
 
     // Record a made 2-pointer through the court picker
-    await page.getByRole('button', { name: '2 Made' }).click();
+    await page.getByRole('button', { name: 'Shot' }).click();
     await page.getByRole('button', { name: /Recorder/ }).click();
     await expect(page.getByText('Tap the shot location')).toBeVisible();
     await tapCourt(page, 0.5, 0.2);
     await expect(page.getByTestId('shot-classification-banner')).toContainText('2-POINT SHOT');
-    await page.getByRole('button', { name: /^Confirm 2PM$/ }).click();
+    await page.getByRole('button', { name: /^MADE$/ }).click();
 
     // Both events recorded
     await expect(page.getByRole('button', { name: 'Log (2)' })).toBeVisible({ timeout: 10_000 });

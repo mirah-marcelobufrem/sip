@@ -1,6 +1,6 @@
 import { render, screen, fireEvent } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { CourtLocationPicker, type ShotStatType } from '../../src/components/charts/CourtLocationPicker';
+import { CourtLocationPicker } from '../../src/components/charts/CourtLocationPicker';
 
 const RECT = {
   left: 0,
@@ -23,20 +23,13 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-function renderPicker(statType: ShotStatType = '2PM') {
+function renderPicker() {
   const onConfirm = vi.fn();
-  const onSkip = vi.fn();
   const onCancel = vi.fn();
   const utils = render(
-    <CourtLocationPicker
-      statType={statType}
-      playerName="#7 Silva"
-      onConfirm={onConfirm}
-      onSkip={onSkip}
-      onCancel={onCancel}
-    />,
+    <CourtLocationPicker playerName="#7 Silva" onConfirm={onConfirm} onCancel={onCancel} />,
   );
-  return { ...utils, onConfirm, onSkip, onCancel };
+  return { ...utils, onConfirm, onCancel };
 }
 
 // Tap coords are in the rendered frame (basket at the TOP, y ≈ 0.113):
@@ -47,23 +40,21 @@ function tap(container: HTMLElement, x: number, y: number) {
   fireEvent.click(svg, { clientX: x * RECT.width, clientY: y * RECT.height });
 }
 
-describe('CourtLocationPicker auto-classification', () => {
+describe('CourtLocationPicker', () => {
   it('shows the 3-POINT SHOT banner for a tap beyond the arc', () => {
-    const { container } = renderPicker('2PM');
+    const { container } = renderPicker();
     tap(container, 0.5, 0.75);
-    const banner = screen.getByTestId('shot-classification-banner');
-    expect(banner).toHaveTextContent('3-POINT SHOT');
+    expect(screen.getByTestId('shot-classification-banner')).toHaveTextContent('3-POINT SHOT');
   });
 
   it('shows the 2-POINT SHOT banner for a tap in the paint', () => {
-    const { container } = renderPicker('2PM');
+    const { container } = renderPicker();
     tap(container, 0.5, 0.2);
-    const banner = screen.getByTestId('shot-classification-banner');
-    expect(banner).toHaveTextContent('2-POINT SHOT');
+    expect(screen.getByTestId('shot-classification-banner')).toHaveTextContent('2-POINT SHOT');
   });
 
   it('flips the classification when Override is clicked', () => {
-    const { container } = renderPicker('2PM');
+    const { container } = renderPicker();
     tap(container, 0.5, 0.2);
     expect(screen.getByTestId('shot-classification-banner')).toHaveTextContent('2-POINT SHOT');
 
@@ -71,31 +62,43 @@ describe('CourtLocationPicker auto-classification', () => {
     expect(screen.getByTestId('shot-classification-banner')).toHaveTextContent('3-POINT SHOT');
   });
 
-  it('submits the auto-derived statType for a made 3-point shot', () => {
-    const { container, onConfirm } = renderPicker('2PM');
+  it('does not show MADE/MISS buttons before a court tap', () => {
+    renderPicker();
+    expect(screen.queryByRole('button', { name: /^made$/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /^miss$/i })).not.toBeInTheDocument();
+  });
+
+  it('confirms a made 3-point shot via the MADE button', () => {
+    const { container, onConfirm } = renderPicker();
     tap(container, 0.5, 0.75);
-    fireEvent.click(screen.getByRole('button', { name: /confirm/i }));
+    fireEvent.click(screen.getByRole('button', { name: /^made$/i }));
     expect(onConfirm).toHaveBeenCalledWith(0.5, 0.75, '3PM');
   });
 
-  it('preserves missed status when deriving the statType', () => {
-    const { container, onConfirm } = renderPicker('2PA');
-    tap(container, 0.5, 0.75);
-    fireEvent.click(screen.getByRole('button', { name: /confirm/i }));
-    expect(onConfirm).toHaveBeenCalledWith(0.5, 0.75, '3PA');
+  it('confirms a missed 2-point shot via the MISS button', () => {
+    const { container, onConfirm } = renderPicker();
+    tap(container, 0.5, 0.2);
+    fireEvent.click(screen.getByRole('button', { name: /^miss$/i }));
+    expect(onConfirm).toHaveBeenCalledWith(0.5, 0.2, '2PA');
   });
 
-  it('submits the overridden statType after Override', () => {
-    const { container, onConfirm } = renderPicker('3PM');
+  it('confirms an overridden classification', () => {
+    const { container, onConfirm } = renderPicker();
     tap(container, 0.5, 0.75); // auto-classified as 3pt
     fireEvent.click(screen.getByRole('button', { name: /override/i })); // dispute → 2pt
-    fireEvent.click(screen.getByRole('button', { name: /confirm/i }));
+    fireEvent.click(screen.getByRole('button', { name: /^made$/i }));
     expect(onConfirm).toHaveBeenCalledWith(0.5, 0.75, '2PM');
   });
 
-  it('keeps Skip location available before a tap and calls onSkip', () => {
-    const { onSkip } = renderPicker('2PM');
-    fireEvent.click(screen.getByRole('button', { name: /skip location/i }));
-    expect(onSkip).toHaveBeenCalled();
+  it('cancels when clicking outside the content area', () => {
+    const { container, onCancel } = renderPicker();
+    fireEvent.click(container.firstChild as Element);
+    expect(onCancel).toHaveBeenCalled();
+  });
+
+  it('does not cancel when tapping the court', () => {
+    const { container, onCancel } = renderPicker();
+    tap(container, 0.5, 0.2);
+    expect(onCancel).not.toHaveBeenCalled();
   });
 });
