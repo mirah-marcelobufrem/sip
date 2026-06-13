@@ -3,7 +3,10 @@ import { useParams, Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { api } from '../../lib/api';
+import { formatHeight, formatWeight } from '../../lib/format';
+import { useSettings } from '../../hooks/useSettings';
 import { ShotChart } from '../../components/charts/ShotChart';
+import { ZoneEfficiencyTable } from '../../components/charts/ZoneEfficiencyTable';
 import { RadarChart } from '../../components/charts/RadarChart';
 import { ShareSheet } from '../../components/ui/ShareSheet';
 
@@ -77,6 +80,8 @@ export default function PlayerCardPage() {
   const [goalForm, setGoalForm] = useState({ metricName: '', targetValue: '', targetDate: '' });
 
   const queryClient = useQueryClient();
+  const { data: prefs } = useSettings();
+  const units = prefs?.units ?? 'metric';
 
   const insightsMutation = useMutation({
     mutationFn: () => api.post<{ insights: string }>(`/ai/development-insights/${playerId}`, {}),
@@ -196,8 +201,8 @@ export default function PlayerCardPage() {
           </h1>
           <div className="flex flex-wrap gap-3 mt-1 text-sm text-gray-500">
             {player.position && <span>{player.position}</span>}
-            {player.heightCm && <span>{player.heightCm} cm</span>}
-            {player.weightKg && <span>{player.weightKg} kg</span>}
+            {player.heightCm && <span>{formatHeight(player.heightCm, units)}</span>}
+            {player.weightKg && <span>{formatWeight(player.weightKg, units)}</span>}
             {player.nationality && <span>{player.nationality}</span>}
             {player.dominantHand && <span>{player.dominantHand === 'R' ? 'Right-handed' : 'Left-handed'}</span>}
           </div>
@@ -289,14 +294,19 @@ export default function PlayerCardPage() {
           {shots.length === 0 ? (
             <p className="text-center text-gray-400 py-8 text-sm">No shot data recorded yet</p>
           ) : (
-            <ShotChart
-              shots={shots.map((s) => ({
-                x: s.x ?? 0.5,
-                y: s.y ?? 0.5,
-                made: s.made,
-                type: (s.isThree ? (s.made ? '3PM' : '3PA') : (s.made ? '2PM' : '2PA')) as '2PM' | '2PA' | '3PM' | '3PA',
-              }))}
-            />
+            <>
+              <ShotChart
+                shots={shots.map((s) => ({
+                  x: s.x ?? 0.5,
+                  y: s.y ?? 0.5,
+                  made: s.made,
+                  type: (s.isThree ? (s.made ? '3PM' : '3PA') : (s.made ? '2PM' : '2PA')) as '2PM' | '2PA' | '3PM' | '3PA',
+                }))}
+              />
+              <div className="mt-3">
+                <ZoneEfficiencyTable shots={shots} />
+              </div>
+            </>
           )}
         </div>
       </div>

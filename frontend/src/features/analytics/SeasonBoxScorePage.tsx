@@ -32,7 +32,7 @@ interface PlayerSeasonRow {
     stl?: number;
     blk?: number;
     pf?: number;
-    minutes?: number | null;
+    minSeconds?: number;
   } | null;
   derived: {
     fgPct: number | null;
@@ -44,6 +44,8 @@ interface PlayerSeasonRow {
 }
 
 type ViewMode = 'avg' | 'totals';
+// N-13 — normalization basis: off, per-40 (FIBA regulation) or per-36 (NBA convention)
+type PerMode = 'off' | '40' | '36';
 
 type SortKey =
   | 'gamesPlayed'
@@ -91,21 +93,24 @@ export default function SeasonBoxScorePage() {
   const [viewMode, setViewMode] = useState<ViewMode>('avg');
   const [sortKey, setSortKey] = useState<SortKey>('pts');
   const [sortAsc, setSortAsc] = useState(false);
-  const [per36Mode, setPer36Mode] = useState(false);
+  const [perMode, setPerMode] = useState<PerMode>('off');
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
 
   const { data: rows = [], isLoading } = useQuery<PlayerSeasonRow[]>({
-    queryKey: ['player-season-stats', teamId, per36Mode, dateFrom, dateTo],
+    queryKey: ['player-season-stats', teamId, perMode, dateFrom, dateTo],
     queryFn: () =>
       api.get(
         `/teams/${teamId}/players/season-stats${buildQuery({
           dateFrom: dateFrom || undefined,
           dateTo: dateTo || undefined,
-          per36: per36Mode ? 'true' : undefined,
+          per: perMode !== 'off' ? perMode : undefined,
         })}`
       ),
   });
+
+  // Normalized values are already rates — never divide them by games played
+  const normalized = perMode !== 'off';
 
   const dataRows = useMemo((): DataRow[] => {
     return rows
@@ -123,13 +128,14 @@ export default function SeasonBoxScorePage() {
         const stl = box.stl ?? 0;
         const blk = box.blk ?? 0;
         const pf = box.pf ?? 0;
-        const minutes = box.minutes ?? 0;
+        // N-01 — the API exposes stint-derived minSeconds
+        const minutes = (box.minSeconds ?? 0) / 60;
 
         const fgPct = box.fga > 0 ? box.fgm / box.fga : null;
         const threePct = threepa > 0 ? threepm / threepa : null;
         const ftPct = fta > 0 ? ftm / fta : null;
 
-        if (viewMode === 'totals') {
+        if (viewMode === 'totals' || normalized) {
           return {
             playerId: r.player.id,
             name: `${r.player.firstName} ${r.player.lastName}`,
@@ -189,7 +195,7 @@ export default function SeasonBoxScorePage() {
         const bv = b[sortKey] ?? 0;
         return sortAsc ? av - bv : bv - av;
       });
-  }, [rows, viewMode, sortKey, sortAsc]);
+  }, [rows, viewMode, normalized, sortKey, sortAsc]);
 
   function handleSort(key: SortKey) {
     if (sortKey === key) {
@@ -213,7 +219,8 @@ export default function SeasonBoxScorePage() {
     );
   }
 
-  const isAvg = viewMode === 'avg';
+  const isAvg = viewMode === 'avg' && !normalized;
+  const perSuffix = perMode === '40' ? '/40' : perMode === '36' ? '/36' : '';
 
   return (
     <div className="p-6 max-w-7xl mx-auto">
@@ -250,17 +257,26 @@ export default function SeasonBoxScorePage() {
           ))}
         </div>
 
-        {/* Per 36 toggle */}
-        <button
-          onClick={() => setPer36Mode((prev) => !prev)}
-          className={`px-3 py-1.5 rounded-lg text-sm font-medium border transition-colors ${
-            per36Mode
-              ? 'bg-brand-600 text-white border-brand-600'
-              : 'bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300 border-gray-300 dark:border-gray-700 hover:border-brand-400'
-          }`}
-        >
-          Per 36
-        </button>
+        {/* N-13 — normalization control: Off | /40 (FIBA) | /36 */}
+        <div className="flex gap-1 bg-gray-100 dark:bg-gray-800 rounded-lg p-1">
+          {([
+            { id: 'off' as const, label: 'Off' },
+            { id: '40' as const, label: 'Per 40' },
+            { id: '36' as const, label: 'Per 36' },
+          ]).map((opt) => (
+            <button
+              key={opt.id}
+              onClick={() => setPerMode(opt.id)}
+              className={`px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
+                perMode === opt.id
+                  ? 'bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 shadow-sm'
+                  : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'
+              }`}
+            >
+              {opt.label}
+            </button>
+          ))}
+        </div>
 
         {/* Date range filters */}
         <div className="flex items-center gap-2">
@@ -303,7 +319,7 @@ export default function SeasonBoxScorePage() {
                 </th>
                 <ColHeader colKey="gamesPlayed" label="GP" />
                 <ColHeader colKey="minutes" label="MIN" />
-                <ColHeader colKey="pts" label={per36Mode ? 'PTS (per 36)' : 'PTS'} />
+                <ColHeader colKey="pts" label={`PTS${perSuffix}`} />
                 <th className="px-3 py-3 text-xs font-medium text-gray-500 uppercase whitespace-nowrap">
                   FGM/A
                 </th>
@@ -322,14 +338,14 @@ export default function SeasonBoxScorePage() {
                 <th className="px-3 py-3 text-xs font-medium text-gray-500 uppercase">
                   FT%
                 </th>
-                <ColHeader colKey="oreb" label={per36Mode ? 'OREB (per 36)' : 'OREB'} />
-                <ColHeader colKey="dreb" label={per36Mode ? 'DREB (per 36)' : 'DREB'} />
-                <ColHeader colKey="reb" label={per36Mode ? 'REB (per 36)' : 'REB'} />
-                <ColHeader colKey="ast" label={per36Mode ? 'AST (per 36)' : 'AST'} />
-                <ColHeader colKey="to" label={per36Mode ? 'TO (per 36)' : 'TO'} />
-                <ColHeader colKey="stl" label={per36Mode ? 'STL (per 36)' : 'STL'} />
-                <ColHeader colKey="blk" label={per36Mode ? 'BLK (per 36)' : 'BLK'} />
-                <ColHeader colKey="pf" label={per36Mode ? 'PF (per 36)' : 'PF'} />
+                <ColHeader colKey="oreb" label={`OREB${perSuffix}`} />
+                <ColHeader colKey="dreb" label={`DREB${perSuffix}`} />
+                <ColHeader colKey="reb" label={`REB${perSuffix}`} />
+                <ColHeader colKey="ast" label={`AST${perSuffix}`} />
+                <ColHeader colKey="to" label={`TO${perSuffix}`} />
+                <ColHeader colKey="stl" label={`STL${perSuffix}`} />
+                <ColHeader colKey="blk" label={`BLK${perSuffix}`} />
+                <ColHeader colKey="pf" label={`PF${perSuffix}`} />
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100 dark:divide-gray-800">

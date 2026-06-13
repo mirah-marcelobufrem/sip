@@ -1,4 +1,10 @@
-import type { PossessionState, StatEvent, StatType } from './entities/game.entity.js';
+import type {
+  LineupSnapshot,
+  PossessionSequence,
+  PossessionState,
+  StatEvent,
+  StatType,
+} from './entities/game.entity.js';
 
 export interface PlayerBoxScore {
   playerId: string;
@@ -143,6 +149,115 @@ export function formatMinutesPlayed(seconds: number, gameMaxSeconds: number): st
 export function isDNP(events: StatEvent[], playerId: string, starterPlayerIds: string[] = []): boolean {
   if (starterPlayerIds.includes(playerId)) return false;
   return !events.some((e) => e.statType === 'SUB_IN' && e.playerId === playerId);
+}
+
+const SCORING_POINTS: Partial<Record<StatType, number>> = { '2PM': 2, '3PM': 3, FTM: 1 };
+
+export interface PlayerStintTotals {
+  minSeconds: number;
+  plusMinus: number;
+}
+
+/**
+ * N-01 — stint engine v1: minutes played and per-player plus/minus derived
+ * from lineup snapshots and substitution events.
+ *
+ * APPROXIMATION (documented, v1): live events carry no clock today, so a
+ * substitution's position WITHIN a period is estimated proportionally by its
+ * event index (a sub at event k of N marks k/N of the period elapsed). Periods
+ * with no events contribute nothing. When clock capture lands, this upgrades
+ * to exact clock-delta stints — the call sites stay unchanged.
+ *
+ * Rules:
+ * - A team's on-court set at the start of period 1 is its initial lineup
+ *   snapshot (the earliest period-1 snapshot not referenced by any SUB event).
+ *   Lineups carry across period boundaries.
+ * - Each SUB_IN/SUB_OUT event pointing at a NEW lineupSnapshotId is a
+ *   boundary; consecutive SUB events sharing one snapshot form one boundary.
+ * - A team with no snapshots accrues nothing (no data is invented).
+ * - plusMinus: points scored by the player's team minus points by any other
+ *   team while the player is on court (2PM=2, 3PM=3, FTM=1).
+ * - Periods beyond regulation (future OT) also use periodDurationMinutes.
+ */
+export function computePlayerStints(
+  events: StatEvent[],
+  snapshots: LineupSnapshot[],
+  game: { numPeriods: number; periodDurationMinutes: number },
+): Map<string, PlayerStintTotals> {
+  const totals = new Map<string, PlayerStintTotals>();
+  const periodSeconds = game.periodDurationMinutes * 60;
+
+  const credit = (playerIds: string[] | null, seconds: number, delta: number): void => {
+    if (!playerIds || (seconds <= 0 && delta === 0)) return;
+    for (const pid of playerIds) {
+      const t = totals.get(pid) ?? { minSeconds: 0, plusMinus: 0 };
+      t.minSeconds += seconds;
+      t.plusMinus += delta;
+      totals.set(pid, t);
+    }
+  };
+
+  // Events grouped by period, preserving repository order within each period.
+  const byPeriod = new Map<number, StatEvent[]>();
+  for (const e of events) {
+    const list = byPeriod.get(e.period) ?? [];
+    list.push(e);
+    byPeriod.set(e.period, list);
+  }
+  const periods = [...byPeriod.keys()].sort((a, b) => a - b);
+
+  const snapshotById = new Map(snapshots.map((s) => [s.id, s]));
+  const subSnapshotIds = new Set(
+    events
+      .filter((e) => (e.statType === 'SUB_IN' || e.statType === 'SUB_OUT') && e.lineupSnapshotId)
+      .map((e) => e.lineupSnapshotId as string),
+  );
+
+  const teamIds = [...new Set(snapshots.map((s) => s.teamId))];
+  for (const teamId of teamIds) {
+    const initial = snapshots.find(
+      (s) => s.teamId === teamId && s.period === 1 && !subSnapshotIds.has(s.id),
+    );
+    let currentSet: string[] | null = initial?.playerIds ?? null;
+    let currentSnapshotId: string | null = initial?.id ?? null;
+
+    for (const period of periods) {
+      const periodEvents = byPeriod.get(period)!;
+      const n = periodEvents.length;
+      if (n === 0) continue;
+
+      let segStartFrac = 0;
+      let segDelta = 0;
+
+      for (let i = 0; i < n; i++) {
+        const e = periodEvents[i]!;
+        const isBoundary =
+          (e.statType === 'SUB_IN' || e.statType === 'SUB_OUT') &&
+          e.teamId === teamId &&
+          e.lineupSnapshotId !== null &&
+          e.lineupSnapshotId !== currentSnapshotId &&
+          snapshotById.has(e.lineupSnapshotId);
+
+        if (isBoundary) {
+          credit(currentSet, (i / n - segStartFrac) * periodSeconds, segDelta);
+          const next = snapshotById.get(e.lineupSnapshotId as string)!;
+          currentSet = next.playerIds;
+          currentSnapshotId = next.id;
+          segStartFrac = i / n;
+          segDelta = 0;
+        }
+
+        const pts = SCORING_POINTS[e.statType];
+        if (pts && e.teamId) {
+          segDelta += e.teamId === teamId ? pts : -pts;
+        }
+      }
+
+      credit(currentSet, (1 - segStartFrac) * periodSeconds, segDelta);
+    }
+  }
+
+  return totals;
 }
 
 /** FIBA: a team enters the bonus on its 5th team foul of the period. */
@@ -375,9 +490,195 @@ export function computeTeamEfficiency(
   return { ortg, drtg, nrtg, pace, possessions };
 }
 
-export function computePer36(box: PlayerBoxScore): Partial<PlayerBoxScore> | null {
+export interface FourFactors {
+  efgPct: number | null;
+  tovPct: number | null;
+  orebPct: number | null;
+  ftRate: number | null;
+}
+
+export interface FourFactorsTotals {
+  fgm: number;
+  threePm: number;
+  fga: number;
+  to: number;
+  fta: number;
+  oreb: number;
+  oppDreb: number;
+}
+
+/**
+ * N-03 — Dean Oliver's Four Factors at team level.
+ * eFG% = (FGM + 0.5·3PM) / FGA
+ * TOV% = TO / (FGA + 0.44·FTA + TO)
+ * ORB% = ORB / (ORB + opponent DRB)   (team rebounds included on both sides)
+ * FTr  = FTA / FGA
+ * Inputs follow the repo-wide convention: fga/fta are TRUE attempts
+ * (makes + misses). Returns null for any zero denominator; raw ratios
+ * (0..1), no rounding — the UI formats.
+ */
+export function computeFourFactors(totals: FourFactorsTotals): FourFactors {
+  const { fgm, threePm, fga, to, fta, oreb, oppDreb } = totals;
+  const tovDenom = fga + 0.44 * fta + to;
+  const orebDenom = oreb + oppDreb;
+  return {
+    efgPct: fga > 0 ? (fgm + 0.5 * threePm) / fga : null,
+    tovPct: tovDenom > 0 ? to / tovDenom : null,
+    orebPct: orebDenom > 0 ? oreb / orebDenom : null,
+    ftRate: fga > 0 ? fta / fga : null,
+  };
+}
+
+/**
+ * N-04 — points in the paint: 2PM whose stored STORAGE-frame coordinates
+ * classify into the restricted area or the key. Shots without coordinates
+ * never count; 3PM can never be a paint shot.
+ */
+export function computePIP(events: StatEvent[], teamId: string): number {
+  let pts = 0;
+  for (const e of events) {
+    if (e.statType !== '2PM' || e.teamId !== teamId) continue;
+    if (e.xCourt === null || e.yCourt === null) continue;
+    const zone = classifyShotZone(e.xCourt, e.yCourt);
+    if (zone === 'restricted_area' || zone === 'paint') pts += 2;
+  }
+  return pts;
+}
+
+/**
+ * Points scored inside a possession-sequence window. A sequence covers the
+ * event interval (startAction, endAction] — start exclusive, end INCLUSIVE,
+ * so the made shot that closes a possession counts toward it. Null bounds
+ * extend to the start/end of the game's event stream. Event array order is
+ * authoritative (repository ordering contract).
+ */
+function sumSequencePoints(
+  events: StatEvent[],
+  posById: Map<string, number>,
+  seq: PossessionSequence,
+): number {
+  const start = seq.startActionId !== null ? (posById.get(seq.startActionId) ?? -1) : -1;
+  const end = seq.endActionId !== null ? (posById.get(seq.endActionId) ?? events.length - 1) : events.length - 1;
+  let pts = 0;
+  for (let i = start + 1; i <= end; i++) {
+    const e = events[i];
+    if (!e || e.teamId !== seq.teamId) continue;
+    pts += SCORING_POINTS[e.statType] ?? 0;
+  }
+  return pts;
+}
+
+function eventPositionIndex(events: StatEvent[]): Map<string, number> {
+  return new Map(events.map((e, i) => [e.id, i]));
+}
+
+/**
+ * N-04 — points off turnovers (FIBA MET-POT): points scored in possessions
+ * gained via an opponent turnover (TO by the other team / STL by this team),
+ * including offensive-rebound continuation sequences of the same possession.
+ * Fouls never start sequences in this model, so the FIBA "defensive foul
+ * does not qualify" exclusion holds by construction.
+ *
+ * KNOWN CARRY-OVER: free-throw sequence position is hardcoded (every FTM
+ * currently closes a possession), so FT-trip possessions are slightly
+ * over-counted until F-06 lands. Documented, not fixed here.
+ */
+export function computePOT(
+  events: StatEvent[],
+  sequences: PossessionSequence[],
+  teamId: string,
+): number {
+  const posById = eventPositionIndex(events);
+  const eventById = new Map(events.map((e) => [e.id, e]));
+  let pts = 0;
+  let inChain = false;
+  for (const seq of sequences) {
+    if (seq.teamId !== teamId) {
+      inChain = false;
+      continue;
+    }
+    const startEvent = seq.startActionId !== null ? eventById.get(seq.startActionId) : undefined;
+    const qualifies =
+      startEvent !== undefined &&
+      ((startEvent.statType === 'TO' && startEvent.teamId !== teamId) ||
+        (startEvent.statType === 'STL' && startEvent.teamId === teamId));
+
+    if (qualifies) inChain = true;
+    else if (!(seq.isOffensiveReboundContinuation && inChain)) inChain = false;
+
+    if (inChain) pts += sumSequencePoints(events, posById, seq);
+  }
+  return pts;
+}
+
+/**
+ * N-04 — second-chance points: points scored in offensive-rebound
+ * continuation sequences (the possession segment after an OREB).
+ */
+export function compute2CP(
+  events: StatEvent[],
+  sequences: PossessionSequence[],
+  teamId: string,
+): number {
+  const posById = eventPositionIndex(events);
+  let pts = 0;
+  for (const seq of sequences) {
+    if (seq.teamId !== teamId || !seq.isOffensiveReboundContinuation) continue;
+    pts += sumSequencePoints(events, posById, seq);
+  }
+  return pts;
+}
+
+/**
+ * N-04 — points per possession. Possessions = the team's sequences excluding
+ * OREB continuations (a continuation is the same possession). Null when the
+ * team has no recorded possessions (e.g. games vs unmanaged opponents where
+ * possession bookkeeping is best-effort).
+ */
+export function computePPP(
+  events: StatEvent[],
+  sequences: PossessionSequence[],
+  teamId: string,
+): number | null {
+  const posById = eventPositionIndex(events);
+  let pts = 0;
+  let possessions = 0;
+  for (const seq of sequences) {
+    if (seq.teamId !== teamId) continue;
+    if (!seq.isOffensiveReboundContinuation) possessions++;
+    pts += sumSequencePoints(events, posById, seq);
+  }
+  return possessions > 0 ? pts / possessions : null;
+}
+
+/**
+ * N-04 — bench points: points by the team's players who were not in the
+ * starting five. Team-level events (playerId null) never count.
+ */
+export function computeBenchPoints(
+  events: StatEvent[],
+  teamId: string,
+  starterPlayerIds: string[],
+): number {
+  let pts = 0;
+  for (const e of events) {
+    if (e.teamId !== teamId || !e.playerId || starterPlayerIds.includes(e.playerId)) continue;
+    pts += SCORING_POINTS[e.statType] ?? 0;
+  }
+  return pts;
+}
+
+/**
+ * N-13 — normalize counting stats to a per-N-minutes basis. The base should
+ * follow the game format (FIBA 40-minute regulation → 40); 36 is kept as the
+ * NBA-convention option. Returns null below 30 seconds played.
+ */
+export function computePerMinutes(
+  box: PlayerBoxScore,
+  baseMinutes: number,
+): Partial<PlayerBoxScore> | null {
   if (box.minSeconds < 30) return null; // insufficient sample
-  const factor = 2160 / box.minSeconds; // 36 min = 2160 seconds
+  const factor = (baseMinutes * 60) / box.minSeconds;
   return {
     pts: box.pts * factor,
     fgm: box.fgm * factor,
@@ -397,6 +698,11 @@ export function computePer36(box: PlayerBoxScore): Partial<PlayerBoxScore> | nul
     blk: box.blk * factor,
     pf: box.pf * factor,
   };
+}
+
+/** Legacy NBA-convention wrapper over computePerMinutes (kept for existing callers). */
+export function computePer36(box: PlayerBoxScore): Partial<PlayerBoxScore> | null {
+  return computePerMinutes(box, 36);
 }
 
 export function buildGameFlowPoints(

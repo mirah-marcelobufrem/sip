@@ -103,13 +103,8 @@ export default function SettingsPage() {
       <section>
         <SectionHeader title="General" description="App-wide display and behavior preferences" />
         <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-700 px-4">
-          <SettingRow label="Language">
-            <Select
-              value={p.language ?? 'en'}
-              onChange={(v) => patch({ language: v })}
-              options={[{ value: 'en', label: 'English' }, { value: 'pt', label: 'Português' }]}
-            />
-          </SettingRow>
+          {/* N-12 — language selector hidden until i18n is actually implemented;
+              the stored preference field is preserved untouched */}
           <SettingRow label="Units">
             <Select
               value={p.units ?? 'metric'}

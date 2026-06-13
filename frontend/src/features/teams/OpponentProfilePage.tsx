@@ -2,6 +2,8 @@ import { useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../../lib/api';
+import { formatHeight, formatWeight } from '../../lib/format';
+import { useSettings } from '../../hooks/useSettings';
 
 interface OpponentTeam {
   id: string;
@@ -204,6 +206,8 @@ function formValuesToPayload(values: OpponentPlayerFormValues) {
 export default function OpponentProfilePage() {
   const { id } = useParams<{ id: string }>();
   const queryClient = useQueryClient();
+  const { data: prefs } = useSettings();
+  const units = prefs?.units ?? 'metric';
 
   const [showAdd, setShowAdd] = useState(false);
   const [editingPlayer, setEditingPlayer] = useState<OpponentPlayer | null>(null);
@@ -353,10 +357,10 @@ export default function OpponentProfilePage() {
                 </td>
                 <td className="px-4 py-3 text-gray-500">{player.position ?? '—'}</td>
                 <td className="px-4 py-3 text-gray-500 hidden sm:table-cell">
-                  {player.heightCm ? `${player.heightCm} cm` : '—'}
+                  {formatHeight(player.heightCm, units)}
                 </td>
                 <td className="px-4 py-3 text-gray-500 hidden sm:table-cell">
-                  {player.weightKg ? `${player.weightKg} kg` : '—'}
+                  {formatWeight(player.weightKg, units)}
                 </td>
                 <td className="px-4 py-3 text-right">
                   <div className="flex justify-end gap-3">
