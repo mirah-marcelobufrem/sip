@@ -3,6 +3,7 @@ import { useParams, Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '../../lib/api';
 import { ShotChart } from '../../components/charts/ShotChart';
+import { ZoneEfficiencyTable } from '../../components/charts/ZoneEfficiencyTable';
 
 type ShotMode = 'dots' | 'heat';
 
@@ -161,6 +162,13 @@ export default function GameShotMapPage() {
             ? 'No shot location data for this game yet.'
             : `No shot location data for ${playerMap.get(selectedPlayer) ?? 'this player'}.`}
         </p>
+      )}
+
+      {total > 0 && (
+        <div className="mt-5 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-4">
+          <h2 className="text-sm font-semibold text-gray-900 dark:text-gray-100 mb-2">Efficiency by Zone</h2>
+          <ZoneEfficiencyTable shots={filteredShots} />
+        </div>
       )}
     </div>
   );
