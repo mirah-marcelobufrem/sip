@@ -21,12 +21,21 @@ interface PlayerSeasonRow {
   gamesPlayed: number;
 }
 
+interface FourFactors {
+  efgPct: number | null;
+  tovPct: number | null;
+  orebPct: number | null;
+  ftRate: number | null;
+}
+
 interface Efficiency {
   ortg: number | null;
   drtg: number | null;
   nrtg: number | null;
   pace: number | null;
   gamesPlayed: number;
+  fourFactors?: FourFactors | null;
+  fourFactorsOpp?: FourFactors | null;
 }
 
 interface Game {
@@ -168,6 +177,79 @@ function AiInsightsTab({ teamId }: { teamId: string }) {
           AI-powered development insights for individual players are available on each player's card page.
         </p>
       </div>
+    </div>
+  );
+}
+
+// N-03 — Four Factors card: own team vs opponents, better side highlighted.
+// TOV% is the only factor where LOWER is better.
+function FourFactorsCard({ own, opp }: { own: FourFactors; opp: FourFactors | null }) {
+  const fmtPct = (v: number | null) => (v !== null ? `${(v * 100).toFixed(1)}%` : '—');
+  const fmtRate = (v: number | null) => (v !== null ? v.toFixed(2) : '—');
+
+  const columns: {
+    key: keyof FourFactors;
+    label: string;
+    tip: string;
+    fmt: (v: number | null) => string;
+    lowerIsBetter: boolean;
+  }[] = [
+    { key: 'efgPct', label: 'eFG%', tip: 'Effective FG% — (FGM + 0.5·3PM) / FGA', fmt: fmtPct, lowerIsBetter: false },
+    { key: 'tovPct', label: 'TOV%', tip: 'Turnover rate — TO / (FGA + 0.44·FTA + TO)', fmt: fmtPct, lowerIsBetter: true },
+    { key: 'orebPct', label: 'ORB%', tip: 'Offensive rebound share — ORB / (ORB + opp DRB)', fmt: fmtPct, lowerIsBetter: false },
+    { key: 'ftRate', label: 'FT Rate', tip: 'Free throw rate — FTA / FGA', fmt: fmtRate, lowerIsBetter: false },
+  ];
+
+  const isBetter = (key: keyof FourFactors, lowerIsBetter: boolean, mine: number | null, theirs: number | null | undefined) => {
+    if (mine === null || theirs == null) return false;
+    return lowerIsBetter ? mine < theirs : mine > theirs;
+  };
+
+  return (
+    <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 p-4 shadow-card" data-testid="four-factors-card">
+      <h2 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3">Four Factors</h2>
+      <table className="w-full text-sm">
+        <thead>
+          <tr className="text-xs uppercase tracking-wide text-gray-500 border-b border-gray-200 dark:border-gray-700">
+            <th className="text-left py-1.5 pr-2 font-medium"></th>
+            {columns.map((c) => (
+              <th key={c.key} className="py-1.5 px-2 font-medium text-right" title={c.tip}>{c.label}</th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          <tr className="border-b border-gray-100 dark:border-gray-800">
+            <td className="py-2 pr-2 font-medium text-gray-900 dark:text-gray-100">Team</td>
+            {columns.map((c) => (
+              <td
+                key={c.key}
+                className={`py-2 px-2 text-right tabular-nums ${
+                  isBetter(c.key, c.lowerIsBetter, own[c.key], opp?.[c.key])
+                    ? 'text-green-600 dark:text-green-400 font-semibold'
+                    : 'text-gray-700 dark:text-gray-300'
+                }`}
+              >
+                {c.fmt(own[c.key])}
+              </td>
+            ))}
+          </tr>
+          <tr>
+            <td className="py-2 pr-2 font-medium text-gray-500">Opponents</td>
+            {columns.map((c) => (
+              <td
+                key={c.key}
+                className={`py-2 px-2 text-right tabular-nums ${
+                  opp && isBetter(c.key, c.lowerIsBetter, opp[c.key], own[c.key])
+                    ? 'text-green-600 dark:text-green-400 font-semibold'
+                    : 'text-gray-500'
+                }`}
+              >
+                {opp ? c.fmt(opp[c.key]) : '—'}
+              </td>
+            ))}
+          </tr>
+        </tbody>
+      </table>
     </div>
   );
 }
@@ -339,6 +421,11 @@ export default function AnalyticsDashboard() {
                 </div>
               ))}
             </div>
+          )}
+
+          {/* N-03 — Four Factors (Dean Oliver) */}
+          {efficiency && efficiency.gamesPlayed > 0 && efficiency.fourFactors && (
+            <FourFactorsCard own={efficiency.fourFactors} opp={efficiency.fourFactorsOpp ?? null} />
           )}
 
           {/* Trend chart with stat selector */}

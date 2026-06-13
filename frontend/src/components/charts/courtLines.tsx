@@ -17,6 +17,54 @@ export function isThreePointArea(x: number, y: number): boolean {
   return Math.sqrt(dx * dx + dy * dy) > 6.75;
 }
 
+export type ShotZone =
+  | 'restricted_area'
+  | 'paint'
+  | 'mid_range_left'
+  | 'mid_range_center'
+  | 'mid_range_right'
+  | 'left_corner_3'
+  | 'left_wing_3'
+  | 'top_arc_3'
+  | 'right_wing_3'
+  | 'right_corner_3';
+
+// Shot zone classification — STORAGE frame (basket at (0.5, 0.113), baseline
+// at y = 0), i.e. xCourt/yCourt exactly as stored in stat_events and rendered
+// by <CourtLines>. Ported verbatim from classifyShotZone in
+// backend/src/domain/stat-calculators.ts — the two MUST stay formula-identical.
+export function classifyShotZone(x: number, y: number): ShotZone {
+  // FIBA half-court: x∈[0,1] over 15 m width, y∈[0,1] over 14 m depth.
+  // Basket center: 1.575 m from baseline → (0.5, 0.113).
+  const dx = (x - 0.5) * 15;   // physical metres, x-axis
+  const dy = (y - 0.113) * 14; // physical metres, y-axis
+  const dist = Math.sqrt(dx * dx + dy * dy);
+
+  // Restricted area: 1.25 m arc
+  if (dist < 1.25) return 'restricted_area';
+
+  // Paint (key): 4.9 m wide (±2.45 m), 5.8 m deep
+  if (x > 0.337 && x < 0.663 && y < 0.414) return 'paint';
+
+  // 3-point boundary: 6.75 m arc + corner straights at x=0.06/0.94 up to y=0.213
+  const isThreePoint =
+    dist > 6.75 ||
+    (x < 0.06 && y < 0.213) ||
+    (x > 0.94 && y < 0.213);
+
+  if (!isThreePoint) {
+    if (x < 0.4) return 'mid_range_left';
+    if (x > 0.6) return 'mid_range_right';
+    return 'mid_range_center';
+  }
+
+  if (x < 0.06) return 'left_corner_3';
+  if (x > 0.94) return 'right_corner_3';
+  if (x < 0.35) return 'left_wing_3';
+  if (x > 0.65) return 'right_wing_3';
+  return 'top_arc_3';
+}
+
 interface CourtLinesProps {
   W: number;
   H: number;

@@ -4,6 +4,21 @@ import { useQuery, useMutation } from '@tanstack/react-query';
 import { api } from '../../lib/api';
 import { GameFlowChart } from '../../components/charts/GameFlowChart';
 
+interface FourFactors {
+  efgPct: number | null;
+  tovPct: number | null;
+  orebPct: number | null;
+  ftRate: number | null;
+}
+
+interface TeamMetrics {
+  pip: number;
+  pot: number;
+  secondChancePoints: number;
+  benchPoints: number | null;
+  ppp: number | null;
+}
+
 interface BoxRow {
   playerId: string;
   playerName: string | null;
@@ -28,6 +43,9 @@ interface BoxRow {
   pf: number;
   efgPct: number | null;
   plusMinus: number;
+  minutesDisplay?: string;
+  fourFactors?: FourFactors | null;
+  teamMetrics?: TeamMetrics | null;
 }
 
 interface Game {
@@ -103,6 +121,7 @@ function BoxTable({ rows, label }: { rows: BoxRow[]; label: string }) {
           <thead className="bg-gray-50 dark:bg-gray-800">
             <tr>
               <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase sticky left-0 bg-gray-50 dark:bg-gray-800 min-w-[120px]">Player</th>
+              <th className="px-3 py-3 text-xs font-medium text-gray-500 uppercase">MIN</th>
               {col('pts', 'PTS')}
               <th className="px-3 py-3 text-xs font-medium text-gray-500 uppercase">FG</th>
               <th className="px-3 py-3 text-xs font-medium text-gray-500 uppercase">FG%</th>
@@ -131,6 +150,7 @@ function BoxTable({ rows, label }: { rows: BoxRow[]; label: string }) {
                     {row.playerName ?? row.playerId.slice(0, 8)}
                   </span>
                 </td>
+                <td className="px-3 py-2.5 text-center text-gray-600 dark:text-gray-400">{row.minutesDisplay ?? '—'}</td>
                 <td className="px-3 py-2.5 text-center font-bold text-gray-900 dark:text-gray-100">{row.pts}</td>
                 <td className="px-3 py-2.5 text-center text-gray-600 dark:text-gray-400">{row.fgm}/{row.fga}</td>
                 <td className="px-3 py-2.5 text-center text-gray-600 dark:text-gray-400">{pct(row.fgPct)}</td>
@@ -154,6 +174,7 @@ function BoxTable({ rows, label }: { rows: BoxRow[]; label: string }) {
           <tfoot className="bg-gray-50 dark:bg-gray-800 border-t-2 border-gray-200 dark:border-gray-700">
             <tr className="font-semibold text-gray-700 dark:text-gray-300">
               <td className="px-4 py-2.5 sticky left-0 bg-gray-50 dark:bg-gray-800 text-xs uppercase tracking-wide">Team</td>
+              <td className="px-3 py-2.5 text-center">—</td>
               <td className="px-3 py-2.5 text-center">{tot.pts}</td>
               <td className="px-3 py-2.5 text-center text-xs">{tot.fgm}/{tot.fga}</td>
               <td className="px-3 py-2.5 text-center text-xs">{pct(tot.fgPct)}</td>
@@ -173,6 +194,54 @@ function BoxTable({ rows, label }: { rows: BoxRow[]; label: string }) {
           </tfoot>
         </table>
       </div>
+      <TeamStatsStrip row={rows[0]} />
+    </div>
+  );
+}
+
+// N-03/N-04 — compact team stats strip (four factors + scoring-context
+// metrics); values are repeated on every row of the team, so any row works.
+function TeamStatsStrip({ row }: { row: BoxRow | undefined }) {
+  const ff = row?.fourFactors;
+  const tm = row?.teamMetrics;
+  if (!ff && !tm) return null;
+
+  const fmtPct = (v: number | null | undefined) => (v != null ? `${(v * 100).toFixed(1)}%` : '—');
+  const fmtNum = (v: number | null | undefined, decimals = 0) =>
+    v != null ? v.toFixed(decimals) : '—';
+
+  const chips: { label: string; value: string; tip: string }[] = [
+    ...(ff
+      ? [
+          { label: 'eFG%', value: fmtPct(ff.efgPct), tip: 'Effective FG%' },
+          { label: 'TOV%', value: fmtPct(ff.tovPct), tip: 'Turnover rate (lower is better)' },
+          { label: 'ORB%', value: fmtPct(ff.orebPct), tip: 'Offensive rebound share' },
+          { label: 'FTr', value: fmtNum(ff.ftRate, 2), tip: 'Free throw rate (FTA/FGA)' },
+        ]
+      : []),
+    ...(tm
+      ? [
+          { label: 'PIP', value: fmtNum(tm.pip), tip: 'Points in the paint' },
+          { label: 'Pts off TO', value: fmtNum(tm.pot), tip: 'Points off turnovers' },
+          { label: '2nd Chance', value: fmtNum(tm.secondChancePoints), tip: 'Second-chance points' },
+          { label: 'Bench', value: fmtNum(tm.benchPoints), tip: 'Bench points (needs an initial lineup)' },
+          { label: 'PPP', value: fmtNum(tm.ppp, 2), tip: 'Points per possession' },
+        ]
+      : []),
+  ];
+
+  return (
+    <div className="flex flex-wrap gap-2 mt-2 px-1" data-testid="team-stats-strip">
+      {chips.map((c) => (
+        <span
+          key={c.label}
+          title={c.tip}
+          className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-gray-100 dark:bg-gray-800 text-xs"
+        >
+          <span className="text-gray-500">{c.label}</span>
+          <span className="font-semibold tabular-nums text-gray-900 dark:text-gray-100">{c.value}</span>
+        </span>
+      ))}
     </div>
   );
 }
