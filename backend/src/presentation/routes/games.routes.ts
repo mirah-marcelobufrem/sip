@@ -14,6 +14,13 @@ import {
   aggregatePlayerEvents,
   aggregateTeamRebounds,
   attachLinkedChildren,
+  compute2CP,
+  computeBenchPoints,
+  computeFourFactors,
+  computePIP,
+  computePlayerStints,
+  computePOT,
+  computePPP,
   deriveStats,
   detectScoringRuns,
   buildGameFlowPoints,
@@ -287,10 +294,18 @@ router.get('/:gameId/log', async (req, res, next) => {
 router.get('/:gameId/box-score', async (req, res, next) => {
   try {
     const db = getDb();
-    const [game, events] = await Promise.all([
+    const [game, events, snapshots, sequences] = await Promise.all([
       new DrizzleGameRepository(db).findById(req.params.gameId),
       new DrizzleStatEventRepository(db).findByGame(req.params.gameId),
+      new DrizzleLineupSnapshotRepository(db).findByGame(req.params.gameId),
+      new DrizzlePossessionSequenceRepository(db).findByGame(req.params.gameId),
     ]);
+
+    // N-01 — stint-derived minutes + per-player plus/minus
+    const stints = computePlayerStints(events, snapshots, {
+      numPeriods: game?.numPeriods ?? 4,
+      periodDurationMinutes: game?.periodDurationMinutes ?? 10,
+    });
 
     const playerMap = new Map<string, { events: typeof events; teamId: string | null }>();
     for (const e of events) {
@@ -329,17 +344,82 @@ router.get('/:gameId/box-score', async (req, res, next) => {
     const periods = Array.from(new Set(events.map((e) => e.period))).sort((a, b) => a - b);
     const teamAggregates = new Map<
       string,
-      { teamOReb: number; teamDReb: number; teamFoulsByPeriod: Record<number, number> }
+      {
+        teamOReb: number;
+        teamDReb: number;
+        teamFoulsByPeriod: Record<number, number>;
+        fourFactors: ReturnType<typeof computeFourFactors>;
+        teamMetrics: {
+          pip: number;
+          pot: number;
+          secondChancePoints: number;
+          benchPoints: number | null;
+          ppp: number | null;
+        };
+      }
     >();
     const teamIds = new Set(events.map((e) => e.teamId).filter((t): t is string => t !== null));
+
+    // N-03 — per-team shooting/possession totals (fga/fta = makes + misses;
+    // OREB/DREB counts include team rebounds — both carry teamId)
+    const teamTotals = new Map<
+      string,
+      { fgm: number; threePm: number; fga: number; to: number; fta: number; oreb: number; dreb: number }
+    >();
+    for (const tid of teamIds) {
+      teamTotals.set(tid, { fgm: 0, threePm: 0, fga: 0, to: 0, fta: 0, oreb: 0, dreb: 0 });
+    }
+    for (const e of events) {
+      const t = e.teamId ? teamTotals.get(e.teamId) : undefined;
+      if (!t) continue;
+      switch (e.statType) {
+        case '2PM': t.fgm++; t.fga++; break;
+        case '3PM': t.fgm++; t.threePm++; t.fga++; break;
+        case '2PA': case '3PA': t.fga++; break;
+        case 'FTM': case 'FTA': t.fta++; break;
+        case 'TO': t.to++; break;
+        case 'OREB': t.oreb++; break;
+        case 'DREB': t.dreb++; break;
+      }
+    }
+
     for (const tid of teamIds) {
       const teamFoulsByPeriod: Record<number, number> = {};
       for (const p of periods) teamFoulsByPeriod[p] = getTeamFoulCountForPeriod(events, tid, p);
-      teamAggregates.set(tid, { ...aggregateTeamRebounds(events, tid), teamFoulsByPeriod });
+
+      const own = teamTotals.get(tid)!;
+      let oppDreb = 0;
+      for (const [otherId, other] of teamTotals) {
+        if (otherId !== tid) oppDreb += other.dreb;
+      }
+
+      // N-04 — starters come from the team's earliest period-1 snapshot;
+      // without one, bench points are unknowable (null), never guessed.
+      const startersSnapshot = snapshots.find((s) => s.teamId === tid && s.period === 1);
+
+      teamAggregates.set(tid, {
+        ...aggregateTeamRebounds(events, tid),
+        teamFoulsByPeriod,
+        fourFactors: computeFourFactors({ ...own, oppDreb }),
+        teamMetrics: {
+          pip: computePIP(events, tid),
+          pot: computePOT(events, sequences, tid),
+          secondChancePoints: compute2CP(events, sequences, tid),
+          benchPoints: startersSnapshot
+            ? computeBenchPoints(events, tid, startersSnapshot.playerIds)
+            : null,
+          ppp: computePPP(events, sequences, tid),
+        },
+      });
     }
 
     const boxScores = Array.from(playerMap.entries()).map(([playerId, { events: playerEvents, teamId }]) => {
       const box = aggregatePlayerEvents(playerEvents);
+      // N-01 — stint-derived values must land before deriveStats so the
+      // minutes-based derived stats (PER, per-36 fields) use real minutes
+      const stint = stints.get(playerId);
+      box.minSeconds = stint?.minSeconds ?? 0;
+      box.plusMinus = stint?.plusMinus ?? 0;
       const derived = deriveStats(box);
       const info = nameMap.get(playerId);
       const isHomeTeam = teamId === game?.homeTeamId;
@@ -355,6 +435,8 @@ router.get('/:gameId/box-score', async (req, res, next) => {
         teamOReb: teamAgg?.teamOReb ?? 0,
         teamDReb: teamAgg?.teamDReb ?? 0,
         teamFoulsByPeriod: teamAgg?.teamFoulsByPeriod ?? {},
+        fourFactors: teamAgg?.fourFactors ?? null,
+        teamMetrics: teamAgg?.teamMetrics ?? null,
       };
     });
 

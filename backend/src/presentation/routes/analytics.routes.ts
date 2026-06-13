@@ -10,8 +10,10 @@ import {
   aggregatePlayerEvents,
   deriveStats,
   classifyShotZone,
+  computeFourFactors,
+  computePerMinutes,
+  computePlayerStints,
   computeTeamEfficiency,
-  computePer36,
   classifyMatchupResult,
   computeMatchupSummary,
   formatMinutesPlayed,
@@ -59,6 +61,9 @@ router.get('/teams/:teamId/players/season-stats', async (req: Request<{ teamId: 
       dateFrom: z.string().optional(),
       dateTo: z.string().optional(),
       per36: z.string().optional(),
+      // N-13 — normalization base; 'per=40' is the FIBA-format default option,
+      // legacy 'per36=true' keeps meaning per-36
+      per: z.enum(['36', '40']).optional(),
     });
     const query = QuerySchema.parse(req.query);
 
@@ -76,7 +81,24 @@ router.get('/teams/:teamId/players/season-stats', async (req: Request<{ teamId: 
     });
 
     const gameIds = new Set(games.map((g) => g.id));
-    const usePer36 = query.per36 === 'true';
+    const perBase = query.per === '40' ? 40 : query.per === '36' || query.per36 === 'true' ? 36 : null;
+
+    // N-01 — stint totals (minutes + plus/minus) accumulated across the
+    // filtered games; one pass per game, shared by every player row below
+    const stintTotalsByPlayer = new Map<string, { minSeconds: number; plusMinus: number }>();
+    for (const game of games) {
+      const [gameEvents, snapshots] = await Promise.all([
+        new DrizzleStatEventRepository(db).findByGame(game.id),
+        new DrizzleLineupSnapshotRepository(db).findByGame(game.id),
+      ]);
+      const stints = computePlayerStints(gameEvents, snapshots, game);
+      for (const [pid, t] of stints) {
+        const acc = stintTotalsByPlayer.get(pid) ?? { minSeconds: 0, plusMinus: 0 };
+        acc.minSeconds += t.minSeconds;
+        acc.plusMinus += t.plusMinus;
+        stintTotalsByPlayer.set(pid, acc);
+      }
+    }
 
     const rows = await Promise.all(
       players.map(async (player) => {
@@ -88,6 +110,9 @@ router.get('/teams/:teamId/players/season-stats', async (req: Request<{ teamId: 
         const box = aggregatePlayerEvents(gameEvents);
         const gamesPlayed = new Set(gameEvents.map((e) => e.gameId)).size;
         box.gamesPlayed = gamesPlayed;
+        const stintTotals = stintTotalsByPlayer.get(player.id);
+        box.minSeconds = stintTotals?.minSeconds ?? 0;
+        box.plusMinus = stintTotals?.plusMinus ?? 0;
         const derived = deriveStats(box);
 
         // I-04 — FIBA MET-1 minutes display. Season aggregate: the rounding
@@ -100,11 +125,11 @@ router.get('/teams/:teamId/players/season-stats', async (req: Request<{ teamId: 
           perGameMaxSeconds * Math.max(gamesPlayed, 1),
         );
 
-        if (usePer36) {
-          const per36 = computePer36(box);
-          if (per36 !== null) {
-            // Replace counting stats with per-36 values; keep derived stats as-is
-            Object.assign(box, per36);
+        if (perBase !== null) {
+          const normalized = computePerMinutes(box, perBase);
+          if (normalized !== null) {
+            // Replace counting stats with per-N-minutes values; keep derived stats as-is
+            Object.assign(box, normalized);
           }
         }
 
@@ -217,13 +242,20 @@ router.get('/teams/:teamId/efficiency', async (req: Request<{ teamId: string }>,
   try {
     const db = getDb();
     const games = await new DrizzleGameRepository(db).findByTeam(req.params.teamId, { status: 'completed' });
-    if (games.length === 0) { res.json({ ortg: null, drtg: null, nrtg: null, pace: null, gamesPlayed: 0 }); return; }
+    if (games.length === 0) {
+      res.json({ ortg: null, drtg: null, nrtg: null, pace: null, gamesPlayed: 0, fourFactors: null, fourFactorsOpp: null });
+      return;
+    }
 
     let totalTeamPts = 0, totalOppPts = 0, totalFga = 0, totalOreb = 0, totalTo = 0, totalFta = 0;
 
+    // N-03 — four-factors totals (fga/fta = makes + misses; OREB/DREB counts
+    // include team rebounds — both row kinds carry teamId)
+    const ffOwn = { fgm: 0, threePm: 0, fga: 0, to: 0, fta: 0, oreb: 0, dreb: 0 };
+    const ffOpp = { fgm: 0, threePm: 0, fga: 0, to: 0, fta: 0, oreb: 0, dreb: 0 };
+
     for (const game of games) {
       const events = await new DrizzleStatEventRepository(db).findByGame(game.id);
-      const teamEvents = events.filter((e) => e.teamId === req.params.teamId || game.homeTeamId === req.params.teamId);
       for (const e of events) {
         const isTeam = e.teamId === req.params.teamId;
         if (isTeam) {
@@ -239,8 +271,19 @@ router.get('/teams/:teamId/efficiency', async (req: Request<{ teamId: string }>,
           else if (e.statType === '3PM') totalOppPts += 3;
           else if (e.statType === 'FTM') totalOppPts += 1;
         }
+
+        const ff = isTeam ? ffOwn : e.teamId ? ffOpp : null;
+        if (!ff) continue;
+        switch (e.statType) {
+          case '2PM': ff.fgm++; ff.fga++; break;
+          case '3PM': ff.fgm++; ff.threePm++; ff.fga++; break;
+          case '2PA': case '3PA': ff.fga++; break;
+          case 'FTM': case 'FTA': ff.fta++; break;
+          case 'TO': ff.to++; break;
+          case 'OREB': ff.oreb++; break;
+          case 'DREB': ff.dreb++; break;
+        }
       }
-      void teamEvents;
     }
 
     const avgPeriodMinutes = games[0]?.periodDurationMinutes ?? 10;
@@ -249,7 +292,14 @@ router.get('/teams/:teamId/efficiency', async (req: Request<{ teamId: string }>,
       totalTeamPts, totalOppPts, totalFga, totalOreb, totalTo, totalFta,
       avgPeriodMinutes, avgPeriods,
     );
-    res.json({ ...eff, gamesPlayed: games.length, teamPts: totalTeamPts, oppPts: totalOppPts });
+    res.json({
+      ...eff,
+      gamesPlayed: games.length,
+      teamPts: totalTeamPts,
+      oppPts: totalOppPts,
+      fourFactors: computeFourFactors({ ...ffOwn, oppDreb: ffOpp.dreb }),
+      fourFactorsOpp: computeFourFactors({ ...ffOpp, oppDreb: ffOwn.dreb }),
+    });
   } catch (err) { next(err); }
 });
 
@@ -284,15 +334,27 @@ router.get('/teams/:teamId/players/:playerId/shot-chart', async (
 router.get('/games/:gameId/player-stats', async (req: Request<{ gameId: string }>, res, next) => {
   try {
     const db = getDb();
-    const events = await new DrizzleStatEventRepository(db).findByGame(req.params.gameId);
+    const [game, events, snapshots] = await Promise.all([
+      new DrizzleGameRepository(db).findById(req.params.gameId),
+      new DrizzleStatEventRepository(db).findByGame(req.params.gameId),
+      new DrizzleLineupSnapshotRepository(db).findByGame(req.params.gameId),
+    ]);
+    // N-01 — stint-derived minutes + plus/minus
+    const stints = computePlayerStints(events, snapshots, {
+      numPeriods: game?.numPeriods ?? 4,
+      periodDurationMinutes: game?.periodDurationMinutes ?? 10,
+    });
     const playerMap = new Map<string, typeof events>();
     for (const e of events) {
       if (!e.playerId) continue;
       if (!playerMap.has(e.playerId)) playerMap.set(e.playerId, []);
       playerMap.get(e.playerId)!.push(e);
     }
-    const rows = Array.from(playerMap.entries()).map(([, playerEvents]) => {
+    const rows = Array.from(playerMap.entries()).map(([playerId, playerEvents]) => {
       const box = aggregatePlayerEvents(playerEvents);
+      const stint = stints.get(playerId);
+      box.minSeconds = stint?.minSeconds ?? 0;
+      box.plusMinus = stint?.plusMinus ?? 0;
       const derived = deriveStats(box);
       return { ...box, ...derived };
     });
