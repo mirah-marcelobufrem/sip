@@ -1,7 +1,8 @@
 import { and, eq, isNull, or } from 'drizzle-orm';
 import { randomBytes } from 'crypto';
 import type { Db } from '../connection.js';
-import { tournaments, tournamentGames } from '../schema/tournaments.schema.js';
+import { tournaments, tournamentGames, tournamentTeams } from '../schema/tournaments.schema.js';
+import { teams } from '../schema/teams.schema.js';
 import type { Tournament, TournamentGame, TournamentTeamEntry } from '../schema/tournaments.schema.js';
 import type { ITournamentRepository } from '../../../domain/repositories/tournament.repository.js';
 
@@ -162,5 +163,29 @@ export class DrizzleTournamentRepository implements ITournamentRepository {
 
   async updateBracketSlot(id: string, data: { gameId?: string; homeSeed?: number | null; awaySeed?: number | null }): Promise<void> {
     await this.db.update(tournamentGames).set(data).where(eq(tournamentGames.id, id));
+  }
+
+  // --- U-03: integrity-backed team↔tournament relation ---
+
+  /** Replace the tournament's tournament_teams rows from JSONB-style entries (only those carrying a real teamId). */
+  async syncTournamentTeams(tournamentId: string, entries: TournamentTeamEntry[]): Promise<void> {
+    await this.db.delete(tournamentTeams).where(eq(tournamentTeams.tournamentId, tournamentId));
+    const valid = entries.filter((e) => !!e.teamId);
+    if (valid.length === 0) return;
+    await this.db
+      .insert(tournamentTeams)
+      .values(valid.map((e) => ({ tournamentId, teamId: e.teamId!, seed: e.seed })))
+      .onConflictDoNothing();
+  }
+
+  /** The tournament's teams via the integrity-backed join (joined to team names). */
+  async getTournamentTeams(tournamentId: string): Promise<{ teamId: string; seed: number; name: string; kind: string }[]> {
+    const rows = await this.db
+      .select({ teamId: tournamentTeams.teamId, seed: tournamentTeams.seed, name: teams.name, kind: teams.kind })
+      .from(tournamentTeams)
+      .innerJoin(teams, eq(tournamentTeams.teamId, teams.id))
+      .where(eq(tournamentTeams.tournamentId, tournamentId))
+      .orderBy(tournamentTeams.seed);
+    return rows;
   }
 }

@@ -2,11 +2,26 @@ import { Router, type Request } from 'express';
 import { z } from 'zod';
 import { and, count, eq, isNull } from 'drizzle-orm';
 import { getDb } from '../../infrastructure/database/connection.js';
-import { opponentTeams, opponentPlayers } from '../../infrastructure/database/schema/opponents.schema.js';
+import { teams } from '../../infrastructure/database/schema/teams.schema.js';
+import { players } from '../../infrastructure/database/schema/players.schema.js';
 import { authenticate } from '../middleware/auth.middleware.js';
+
+/**
+ * U-01/U-02 — "Scouted teams" API. After the One Team Universe migration these
+ * routes are THIN ALIASES over the unified teams/players tables: an opponent
+ * team is a `teams` row with kind='external', owned via created_by_user_id
+ * (preserving the v1.6.1 ownership scoping); opponent players are plain
+ * `players` rows. The /opponent-teams path is retained one release for the
+ * frontend Scouted tab + tournament team picker; responses map photo→logo for
+ * backward compatibility.
+ */
 
 const router = Router({ mergeParams: true });
 router.use(authenticate);
+
+const POSITIONS = ['PG', 'SG', 'SF', 'PF', 'C'] as const;
+const coercePosition = (p?: string | null): (typeof POSITIONS)[number] | null =>
+  p && (POSITIONS as readonly string[]).includes(p) ? (p as (typeof POSITIONS)[number]) : null;
 
 const TeamBody = z.object({
   name: z.string().min(1).max(200),
@@ -26,32 +41,56 @@ const PlayerBody = z.object({
   notes: z.string().optional(),
 });
 
+// Map a unified external-team row to the legacy opponent-team response shape.
+function toOpponentTeam(t: typeof teams.$inferSelect) {
+  return {
+    id: t.id,
+    createdByUserId: t.createdByUserId,
+    name: t.name,
+    logo: t.photo,
+    homeCourt: t.homeCourt,
+    contactName: t.contactName,
+    contactEmail: t.contactEmail,
+    createdAt: t.createdAt,
+    updatedAt: t.updatedAt,
+    deletedAt: t.deletedAt,
+  };
+}
+
+/** Load an external team owned by the caller, or null (404 → no existence leak). */
+async function ownedExternalTeam(db: ReturnType<typeof getDb>, id: string, userId: string) {
+  const rows = await db
+    .select()
+    .from(teams)
+    .where(
+      and(
+        eq(teams.id, id),
+        eq(teams.kind, 'external'),
+        eq(teams.createdByUserId, userId),
+        isNull(teams.deletedAt),
+      ),
+    )
+    .limit(1);
+  return rows[0] ?? null;
+}
+
 // GET /opponent-teams
 router.get('/', async (req, res, next) => {
   try {
     const db = getDb();
-    const teams = await db
+    const rows = await db
       .select()
-      .from(opponentTeams)
-      .where(and(eq(opponentTeams.createdByUserId, req.userId), isNull(opponentTeams.deletedAt)));
+      .from(teams)
+      .where(and(eq(teams.kind, 'external'), eq(teams.createdByUserId, req.userId), isNull(teams.deletedAt)));
 
     const counts = await db
-      .select({
-        opponentTeamId: opponentPlayers.opponentTeamId,
-        playerCount: count(opponentPlayers.id),
-      })
-      .from(opponentPlayers)
-      .where(isNull(opponentPlayers.deletedAt))
-      .groupBy(opponentPlayers.opponentTeamId);
+      .select({ teamId: players.teamId, playerCount: count(players.id) })
+      .from(players)
+      .where(isNull(players.deletedAt))
+      .groupBy(players.teamId);
+    const countMap = new Map(counts.map((c) => [c.teamId, Number(c.playerCount)]));
 
-    const countMap = new Map(counts.map(c => [c.opponentTeamId, Number(c.playerCount)]));
-
-    const result = teams.map(t => ({
-      ...t,
-      playerCount: countMap.get(t.id) ?? 0,
-    }));
-
-    res.json(result);
+    res.json(rows.map((t) => ({ ...toOpponentTeam(t), playerCount: countMap.get(t.id) ?? 0 })));
   } catch (err) { next(err); }
 });
 
@@ -61,17 +100,18 @@ router.post('/', async (req, res, next) => {
     const body = TeamBody.parse(req.body);
     const db = getDb();
     const [team] = await db
-      .insert(opponentTeams)
+      .insert(teams)
       .values({
+        kind: 'external',
         createdByUserId: req.userId,
         name: body.name,
-        logo: body.logo ?? null,
+        photo: body.logo ?? null,
         homeCourt: body.homeCourt ?? null,
         contactName: body.contactName ?? null,
         contactEmail: body.contactEmail ?? null,
       })
       .returning();
-    res.status(201).json(team);
+    res.status(201).json(toOpponentTeam(team!));
   } catch (err) { next(err); }
 });
 
@@ -79,19 +119,13 @@ router.post('/', async (req, res, next) => {
 router.get('/:id', async (req: Request<{ id: string }>, res, next) => {
   try {
     const db = getDb();
-    const team = await db
+    const team = await ownedExternalTeam(db, req.params.id, req.userId);
+    if (!team) { res.status(404).json({ error: 'Opponent team not found', code: 'NOT_FOUND' }); return; }
+    const roster = await db
       .select()
-      .from(opponentTeams)
-      .where(and(eq(opponentTeams.id, req.params.id), eq(opponentTeams.createdByUserId, req.userId), isNull(opponentTeams.deletedAt)))
-      .then(rows => rows[0] ?? null);
-    if (!team) {
-      res.status(404).json({ error: 'Opponent team not found', code: 'NOT_FOUND' }); return;
-    }
-    const players = await db
-      .select()
-      .from(opponentPlayers)
-      .where(and(eq(opponentPlayers.opponentTeamId, req.params.id), isNull(opponentPlayers.deletedAt)));
-    res.json({ ...team, players });
+      .from(players)
+      .where(and(eq(players.teamId, req.params.id), isNull(players.deletedAt)));
+    res.json({ ...toOpponentTeam(team), players: roster });
   } catch (err) { next(err); }
 });
 
@@ -100,27 +134,21 @@ router.put('/:id', async (req: Request<{ id: string }>, res, next) => {
   try {
     const body = TeamBody.partial().parse(req.body);
     const db = getDb();
-    const existing = await db
-      .select()
-      .from(opponentTeams)
-      .where(and(eq(opponentTeams.id, req.params.id), eq(opponentTeams.createdByUserId, req.userId), isNull(opponentTeams.deletedAt)))
-      .then(rows => rows[0] ?? null);
-    if (!existing) {
-      res.status(404).json({ error: 'Opponent team not found', code: 'NOT_FOUND' }); return;
-    }
+    const team = await ownedExternalTeam(db, req.params.id, req.userId);
+    if (!team) { res.status(404).json({ error: 'Opponent team not found', code: 'NOT_FOUND' }); return; }
     const [updated] = await db
-      .update(opponentTeams)
+      .update(teams)
       .set({
         ...(body.name !== undefined ? { name: body.name } : {}),
-        ...(body.logo !== undefined ? { logo: body.logo } : {}),
+        ...(body.logo !== undefined ? { photo: body.logo } : {}),
         ...(body.homeCourt !== undefined ? { homeCourt: body.homeCourt } : {}),
         ...(body.contactName !== undefined ? { contactName: body.contactName } : {}),
         ...(body.contactEmail !== undefined ? { contactEmail: body.contactEmail } : {}),
         updatedAt: new Date(),
       })
-      .where(eq(opponentTeams.id, req.params.id))
+      .where(eq(teams.id, req.params.id))
       .returning();
-    res.json(updated);
+    res.json(toOpponentTeam(updated!));
   } catch (err) { next(err); }
 });
 
@@ -128,18 +156,9 @@ router.put('/:id', async (req: Request<{ id: string }>, res, next) => {
 router.delete('/:id', async (req: Request<{ id: string }>, res, next) => {
   try {
     const db = getDb();
-    const existing = await db
-      .select()
-      .from(opponentTeams)
-      .where(and(eq(opponentTeams.id, req.params.id), eq(opponentTeams.createdByUserId, req.userId), isNull(opponentTeams.deletedAt)))
-      .then(rows => rows[0] ?? null);
-    if (!existing) {
-      res.status(404).json({ error: 'Opponent team not found', code: 'NOT_FOUND' }); return;
-    }
-    await db
-      .update(opponentTeams)
-      .set({ deletedAt: new Date(), updatedAt: new Date() })
-      .where(eq(opponentTeams.id, req.params.id));
+    const team = await ownedExternalTeam(db, req.params.id, req.userId);
+    if (!team) { res.status(404).json({ error: 'Opponent team not found', code: 'NOT_FOUND' }); return; }
+    await db.update(teams).set({ deletedAt: new Date(), updatedAt: new Date() }).where(eq(teams.id, req.params.id));
     res.status(204).send();
   } catch (err) { next(err); }
 });
@@ -148,19 +167,13 @@ router.delete('/:id', async (req: Request<{ id: string }>, res, next) => {
 router.get('/:id/players', async (req: Request<{ id: string }>, res, next) => {
   try {
     const db = getDb();
-    const team = await db
+    const team = await ownedExternalTeam(db, req.params.id, req.userId);
+    if (!team) { res.status(404).json({ error: 'Opponent team not found', code: 'NOT_FOUND' }); return; }
+    const roster = await db
       .select()
-      .from(opponentTeams)
-      .where(and(eq(opponentTeams.id, req.params.id), eq(opponentTeams.createdByUserId, req.userId), isNull(opponentTeams.deletedAt)))
-      .then(rows => rows[0] ?? null);
-    if (!team) {
-      res.status(404).json({ error: 'Opponent team not found', code: 'NOT_FOUND' }); return;
-    }
-    const players = await db
-      .select()
-      .from(opponentPlayers)
-      .where(and(eq(opponentPlayers.opponentTeamId, req.params.id), isNull(opponentPlayers.deletedAt)));
-    res.json(players);
+      .from(players)
+      .where(and(eq(players.teamId, req.params.id), isNull(players.deletedAt)));
+    res.json(roster);
   } catch (err) { next(err); }
 });
 
@@ -169,28 +182,23 @@ router.post('/:id/players', async (req: Request<{ id: string }>, res, next) => {
   try {
     const body = PlayerBody.parse(req.body);
     const db = getDb();
-    const team = await db
-      .select()
-      .from(opponentTeams)
-      .where(and(eq(opponentTeams.id, req.params.id), eq(opponentTeams.createdByUserId, req.userId), isNull(opponentTeams.deletedAt)))
-      .then(rows => rows[0] ?? null);
-    if (!team) {
-      res.status(404).json({ error: 'Opponent team not found', code: 'NOT_FOUND' }); return;
-    }
+    const team = await ownedExternalTeam(db, req.params.id, req.userId);
+    if (!team) { res.status(404).json({ error: 'Opponent team not found', code: 'NOT_FOUND' }); return; }
     const [player] = await db
-      .insert(opponentPlayers)
+      .insert(players)
       .values({
-        opponentTeamId: req.params.id,
+        teamId: req.params.id,
         firstName: body.firstName,
         lastName: body.lastName,
         jerseyNumber: body.jerseyNumber ?? null,
-        position: body.position ?? null,
+        position: coercePosition(body.position),
         heightCm: body.heightCm ?? null,
         weightKg: body.weightKg ?? null,
         notes: body.notes ?? null,
+        status: 'active',
       })
       .returning();
-    res.status(201).json(player);
+    res.status(201).json(player!);
   } catch (err) { next(err); }
 });
 
@@ -199,43 +207,30 @@ router.put('/:id/players/:playerId', async (req: Request<{ id: string; playerId:
   try {
     const body = PlayerBody.partial().parse(req.body);
     const db = getDb();
-    const team = await db
-      .select()
-      .from(opponentTeams)
-      .where(and(eq(opponentTeams.id, req.params.id), eq(opponentTeams.createdByUserId, req.userId), isNull(opponentTeams.deletedAt)))
-      .then(rows => rows[0] ?? null);
-    if (!team) {
-      res.status(404).json({ error: 'Opponent team not found', code: 'NOT_FOUND' }); return;
-    }
+    const team = await ownedExternalTeam(db, req.params.id, req.userId);
+    if (!team) { res.status(404).json({ error: 'Opponent team not found', code: 'NOT_FOUND' }); return; }
     const existing = await db
       .select()
-      .from(opponentPlayers)
-      .where(
-        and(
-          eq(opponentPlayers.id, req.params.playerId),
-          eq(opponentPlayers.opponentTeamId, req.params.id),
-          isNull(opponentPlayers.deletedAt),
-        ),
-      )
-      .then(rows => rows[0] ?? null);
-    if (!existing) {
-      res.status(404).json({ error: 'Opponent player not found', code: 'NOT_FOUND' }); return;
-    }
+      .from(players)
+      .where(and(eq(players.id, req.params.playerId), eq(players.teamId, req.params.id), isNull(players.deletedAt)))
+      .limit(1)
+      .then((rows) => rows[0] ?? null);
+    if (!existing) { res.status(404).json({ error: 'Opponent player not found', code: 'NOT_FOUND' }); return; }
     const [updated] = await db
-      .update(opponentPlayers)
+      .update(players)
       .set({
         ...(body.firstName !== undefined ? { firstName: body.firstName } : {}),
         ...(body.lastName !== undefined ? { lastName: body.lastName } : {}),
         ...(body.jerseyNumber !== undefined ? { jerseyNumber: body.jerseyNumber } : {}),
-        ...(body.position !== undefined ? { position: body.position } : {}),
+        ...(body.position !== undefined ? { position: coercePosition(body.position) } : {}),
         ...(body.heightCm !== undefined ? { heightCm: body.heightCm } : {}),
         ...(body.weightKg !== undefined ? { weightKg: body.weightKg } : {}),
         ...(body.notes !== undefined ? { notes: body.notes } : {}),
         updatedAt: new Date(),
       })
-      .where(eq(opponentPlayers.id, req.params.playerId))
+      .where(eq(players.id, req.params.playerId))
       .returning();
-    res.json(updated);
+    res.json(updated!);
   } catch (err) { next(err); }
 });
 
@@ -243,49 +238,26 @@ router.put('/:id/players/:playerId', async (req: Request<{ id: string; playerId:
 router.delete('/:id/players/:playerId', async (req: Request<{ id: string; playerId: string }>, res, next) => {
   try {
     const db = getDb();
-    const team = await db
-      .select()
-      .from(opponentTeams)
-      .where(and(eq(opponentTeams.id, req.params.id), eq(opponentTeams.createdByUserId, req.userId), isNull(opponentTeams.deletedAt)))
-      .then(rows => rows[0] ?? null);
-    if (!team) {
-      res.status(404).json({ error: 'Opponent team not found', code: 'NOT_FOUND' }); return;
-    }
+    const team = await ownedExternalTeam(db, req.params.id, req.userId);
+    if (!team) { res.status(404).json({ error: 'Opponent team not found', code: 'NOT_FOUND' }); return; }
     const existing = await db
       .select()
-      .from(opponentPlayers)
-      .where(
-        and(
-          eq(opponentPlayers.id, req.params.playerId),
-          eq(opponentPlayers.opponentTeamId, req.params.id),
-          isNull(opponentPlayers.deletedAt),
-        ),
-      )
-      .then(rows => rows[0] ?? null);
-    if (!existing) {
-      res.status(404).json({ error: 'Opponent player not found', code: 'NOT_FOUND' }); return;
-    }
-    await db
-      .update(opponentPlayers)
-      .set({ deletedAt: new Date(), updatedAt: new Date() })
-      .where(eq(opponentPlayers.id, req.params.playerId));
+      .from(players)
+      .where(and(eq(players.id, req.params.playerId), eq(players.teamId, req.params.id), isNull(players.deletedAt)))
+      .limit(1)
+      .then((rows) => rows[0] ?? null);
+    if (!existing) { res.status(404).json({ error: 'Opponent player not found', code: 'NOT_FOUND' }); return; }
+    await db.update(players).set({ deletedAt: new Date(), updatedAt: new Date() }).where(eq(players.id, req.params.playerId));
     res.status(204).send();
   } catch (err) { next(err); }
 });
 
-// GET /opponent-teams/:id/stats
+// GET /opponent-teams/:id/stats — tendency aggregation lands in v5 S10 (N-09)
 router.get('/:id/stats', async (req: Request<{ id: string }>, res, next) => {
   try {
     const db = getDb();
-    const team = await db
-      .select()
-      .from(opponentTeams)
-      .where(and(eq(opponentTeams.id, req.params.id), eq(opponentTeams.createdByUserId, req.userId), isNull(opponentTeams.deletedAt)))
-      .then(rows => rows[0] ?? null);
-    if (!team) {
-      res.status(404).json({ error: 'Opponent team not found', code: 'NOT_FOUND' }); return;
-    }
-    // Link between games and opponent_teams is not yet wired — return stub
+    const team = await ownedExternalTeam(db, req.params.id, req.userId);
+    if (!team) { res.status(404).json({ error: 'Opponent team not found', code: 'NOT_FOUND' }); return; }
     res.json({ games: 0, avgPts: 0 });
   } catch (err) { next(err); }
 });

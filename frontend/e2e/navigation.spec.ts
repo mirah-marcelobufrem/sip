@@ -9,9 +9,10 @@ test.describe('Navigation', () => {
     // Open sidebar via the hamburger button
     await page.getByRole('button', { name: /toggle navigation menu/i }).click();
 
-    // Sidebar nav items should now be visible
+    // Sidebar nav items should now be visible. The standalone "Opponents"
+    // item was removed in S08 (scouted teams live under the Teams page).
     await expect(page.getByRole('link', { name: /^Teams$/i })).toBeVisible();
-    await expect(page.getByRole('link', { name: /^Opponents$/i })).toBeVisible();
+    await expect(page.getByRole('link', { name: /^Opponents$/i })).toHaveCount(0);
     await expect(page.getByRole('link', { name: /^Scouting$/i })).toBeVisible();
     await expect(page.getByRole('link', { name: /^Tournaments$/i })).toBeVisible();
   });
@@ -28,13 +29,11 @@ test.describe('Navigation', () => {
     await expect(page).toHaveURL(/\/settings/);
   });
 
-  test('can navigate to opponent-teams', async ({ page }) => {
+  test('can reach scouted teams from the Teams page tab', async ({ page }) => {
     await createAndLogin(page, `nav-opp-${Date.now()}`);
     await page.waitForURL(/\/teams/);
 
-    await page.goto('/opponent-teams');
-    await page.waitForLoadState('networkidle');
-
-    await expect(page.getByRole('heading', { name: 'Opponent Teams' })).toBeVisible();
+    await page.getByRole('button', { name: 'Scouted' }).click();
+    await expect(page.getByRole('button', { name: '+ Add Scouted Team' })).toBeVisible();
   });
 });

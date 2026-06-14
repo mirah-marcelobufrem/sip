@@ -8,9 +8,11 @@ async function setupTeamWithOpponent(page: Page, suffix: string): Promise<string
 
   const teamId = await setupTeam(page, `Tourney Squad ${suffix}`);
 
-  await page.goto('/opponent-teams');
+  // S08 — scouted teams are created from the Teams page "Scouted" tab.
+  await page.goto('/teams');
   await page.waitForLoadState('networkidle');
-  await page.getByRole('button', { name: '+ Add Opponent' }).click();
+  await page.getByRole('button', { name: 'Scouted' }).click();
+  await page.getByRole('button', { name: '+ Add Scouted Team' }).click();
   await page.getByLabel(/team name/i).fill(`Tourney Foes ${suffix}`);
   await page.getByRole('button', { name: 'Add Team' }).click();
   await expect(page.getByText(`Tourney Foes ${suffix}`)).toBeVisible({ timeout: 10_000 });

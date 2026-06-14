@@ -23,7 +23,6 @@ import TournamentDetailPage from './features/tournaments/TournamentDetailPage';
 import PublicBracketPage from './features/tournaments/PublicBracketPage';
 import SettingsPage from './features/settings/SettingsPage';
 import AccountPage from './features/settings/AccountPage';
-import OpponentTeamsPage from './features/teams/OpponentTeamsPage';
 import OpponentProfilePage from './features/teams/OpponentProfilePage';
 import ForgotPasswordPage from './features/auth/ForgotPasswordPage';
 import ResetPasswordPage from './features/auth/ResetPasswordPage';
@@ -75,7 +74,9 @@ export default function App() {
           <Route path="settings" element={<SettingsPage />} />
           <Route path="account" element={<AccountPage />} />
           <Route path="teams/:teamId/players/compare" element={<PlayerComparisonPage />} />
-          <Route path="opponent-teams" element={<OpponentTeamsPage />} />
+          {/* U-01 — scouted-team listing folded into the Teams "Scouted" tab;
+              the standalone /opponent-teams listing page was removed. The
+              detail page is reached from that tab. */}
           <Route path="opponent-teams/:id" element={<OpponentProfilePage />} />
         </Route>
       </Routes>

@@ -135,8 +135,10 @@ async function updatePossession(
         isPending: false,
       };
 
-      const homeId = game.homeTeamId ?? game.homeOpponentTeamId;
-      const awayId = game.awayTeamId ?? game.awayOpponentTeamId;
+      // U-02 — both sides are unified teams now; possession resolves for
+      // external (scouted) away teams just like managed ones.
+      const homeId = game.homeTeamId;
+      const awayId = game.awayTeamId;
       const opponentTeamId =
         input.teamId === homeId ? awayId : input.teamId === awayId ? homeId : null;
 

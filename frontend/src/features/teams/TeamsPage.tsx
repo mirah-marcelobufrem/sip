@@ -12,6 +12,12 @@ interface Team {
   active: boolean;
 }
 
+interface ScoutedTeam {
+  id: string;
+  name: string;
+  playerCount?: number;
+}
+
 interface Member {
   userId: string;
   email: string;
@@ -139,14 +145,23 @@ function MembersModal({ teamId, onClose }: { teamId: string; onClose: () => void
 
 export default function TeamsPage() {
   const queryClient = useQueryClient();
+  const [activeTab, setActiveTab] = useState<'managed' | 'scouted'>('managed');
   const [showCreate, setShowCreate] = useState(false);
   const [name, setName] = useState('');
   const [season, setSeason] = useState('');
+  const [scoutedName, setScoutedName] = useState('');
+  const [showCreateScouted, setShowCreateScouted] = useState(false);
   const [membersTeamId, setMembersTeamId] = useState<string | null>(null);
 
   const { data: teams = [], isLoading } = useQuery<Team[]>({
     queryKey: ['teams'],
     queryFn: () => api.get('/teams'),
+  });
+
+  // U-01 — scouted (external) teams; same data universe, ownership-scoped API.
+  const { data: scoutedTeams = [], isLoading: scoutedLoading } = useQuery<ScoutedTeam[]>({
+    queryKey: ['opponent-teams'],
+    queryFn: () => api.get('/opponent-teams'),
   });
 
   const createMutation = useMutation({
@@ -159,20 +174,76 @@ export default function TeamsPage() {
     },
   });
 
+  const createScoutedMutation = useMutation({
+    mutationFn: (data: { name: string }) => api.post('/opponent-teams', data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['opponent-teams'] });
+      setShowCreateScouted(false);
+      setScoutedName('');
+    },
+  });
+
   return (
     <div className="p-6 max-w-4xl mx-auto">
-      <div className="flex items-center justify-between mb-6">
+      <div className="flex items-center justify-between mb-4">
         <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">Teams</h1>
         <button
-          onClick={() => setShowCreate(true)}
+          onClick={() => (activeTab === 'managed' ? setShowCreate(true) : setShowCreateScouted(true))}
           className="px-4 py-2 bg-brand-600 hover:bg-brand-700 text-white rounded-lg text-sm font-medium transition-colors"
         >
-          + New Team
+          {activeTab === 'managed' ? '+ New Team' : '+ Add Scouted Team'}
         </button>
       </div>
 
-      {isLoading && <p className="text-gray-500">Loading…</p>}
+      {/* U-01 — My Teams (managed) | Scouted (external) tabs */}
+      <div className="flex gap-1 bg-gray-100 dark:bg-gray-800 rounded-lg p-1 mb-6 w-fit">
+        {([
+          { id: 'managed' as const, label: 'My Teams' },
+          { id: 'scouted' as const, label: 'Scouted' },
+        ]).map((tab) => (
+          <button
+            key={tab.id}
+            onClick={() => setActiveTab(tab.id)}
+            className={`px-4 py-1.5 rounded-md text-sm font-medium transition-colors ${
+              activeTab === tab.id
+                ? 'bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 shadow-sm'
+                : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'
+            }`}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
 
+      {activeTab === 'scouted' && (
+        <>
+          {scoutedLoading && <p className="text-gray-500">Loading…</p>}
+          {!scoutedLoading && scoutedTeams.length === 0 && (
+            <p className="text-sm text-gray-400 text-center py-10">
+              No scouted teams yet. Add one to track an opponent's roster and tendencies.
+            </p>
+          )}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            {scoutedTeams.map((team) => (
+              <Link
+                key={team.id}
+                to={`/opponent-teams/${team.id}`}
+                className="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 p-4 shadow-card hover:shadow-elevated transition-shadow block"
+              >
+                <div className="w-10 h-10 bg-gray-100 dark:bg-gray-800 rounded-lg flex items-center justify-center text-xl mb-3">🆚</div>
+                <h3 className="font-semibold text-gray-900 dark:text-gray-100">{team.name}</h3>
+                <p className="text-sm text-gray-500 dark:text-gray-400">
+                  {team.playerCount ?? 0} player{(team.playerCount ?? 0) === 1 ? '' : 's'}
+                </p>
+              </Link>
+            ))}
+          </div>
+        </>
+      )}
+
+      {activeTab === 'managed' && isLoading && <p className="text-gray-500">Loading…</p>}
+
+      {activeTab === 'managed' && (
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
         {teams.map((team) => (
           <div key={team.id} className="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 p-4 shadow-card hover:shadow-elevated transition-shadow">
@@ -215,9 +286,43 @@ export default function TeamsPage() {
           </div>
         ))}
       </div>
+      )}
 
       {membersTeamId && (
         <MembersModal teamId={membersTeamId} onClose={() => setMembersTeamId(null)} />
+      )}
+
+      {showCreateScouted && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
+          <div className="bg-white dark:bg-gray-900 rounded-xl p-6 w-full max-w-md shadow-elevated">
+            <h2 className="text-lg font-semibold mb-4 text-gray-900 dark:text-gray-100">Add Scouted Team</h2>
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                if (scoutedName.trim()) createScoutedMutation.mutate({ name: scoutedName.trim() });
+              }}
+              className="space-y-4"
+            >
+              <div>
+                <label htmlFor="create-scouted-name" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Team name</label>
+                <input
+                  id="create-scouted-name"
+                  value={scoutedName}
+                  onChange={(e) => setScoutedName(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg text-sm bg-white dark:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-brand-500"
+                  required
+                  autoFocus
+                />
+              </div>
+              <div className="flex gap-2 justify-end">
+                <button type="button" onClick={() => setShowCreateScouted(false)} className="px-4 py-2 text-sm text-gray-600 hover:text-gray-800">Cancel</button>
+                <button type="submit" disabled={createScoutedMutation.isPending} className="px-4 py-2 bg-brand-600 hover:bg-brand-700 text-white rounded-lg text-sm font-medium disabled:opacity-60">
+                  {createScoutedMutation.isPending ? 'Adding…' : 'Add Team'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
       )}
 
       {showCreate && (
