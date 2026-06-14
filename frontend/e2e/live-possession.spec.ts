@@ -6,12 +6,10 @@ import { createAndLogin, setupTeam } from './helpers';
  * - I-02 auto 2/3 classification banner + Override in the court picker
  * - F-01 possession arrow indicator on the live scoreboard
  *
- * NOTE: games created through the Game Setup Wizard have an UNMANAGED opponent
- * (free-text name only, no away teamId). Possession can therefore only ever be
- * credited to the home team; a made home shot flips possession to the (unknown)
- * opponent, which the backend stores as null — so the arrow HIDES after a made
- * home shot. The arrow-visible assertion is made after a defensive rebound
- * (deterministic home-team possession) instead of after the made shot.
+ * NOTE: since S08 (One Team Universe) games created through the wizard always
+ * have a real away team (an external/scouted team find-or-created from the
+ * typed name), so possession resolves for BOTH sides. A made home shot now
+ * flips possession to the away team and the arrow stays visible ("AWAY BALL").
  */
 
 /** Register, create team + one player, create a game via the wizard, start it. */
@@ -127,8 +125,11 @@ test.describe('Live recording — S05 FIBA Phase 2', () => {
     // Both events recorded
     await expect(page.getByRole('button', { name: 'Log (2)' })).toBeVisible({ timeout: 10_000 });
 
-    // Made home shot flips possession to the unmanaged opponent (stored as null)
-    // → the indicator hides again. See the file header note.
-    await expect(arrow).toBeHidden({ timeout: 10_000 });
+    // S08 — the away team is now a real (external) team, so a made home shot
+    // flips possession to the AWAY side; the indicator stays visible and
+    // points away. (Pre-S08 the unmanaged opponent resolved to null possession
+    // and the arrow hid — that hole is closed.)
+    await expect(arrow).toBeVisible({ timeout: 10_000 });
+    await expect(arrow).toContainText('AWAY BALL');
   });
 });
