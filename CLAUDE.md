@@ -377,7 +377,7 @@ Roles per team: `OWNER > COACH > ASSISTANT > SCOUT > VIEWER`
 - Unit tests: mock repository interfaces only; live in `tests/unit/`
 - Integration tests: real PostgreSQL 17; live in `tests/integration/`
 - Each test file mirrors its source: `src/application/auth/registerUser.ts` → `tests/unit/auth/registerUser.test.ts`
-- Run unit tests without Docker; integration tests require the `postgres` service
+- Run unit tests without Docker; integration tests require the `postgres` service. `npm run test:integration` **hangs silently** unless a `sip_test` database exists and has been migrated — create and migrate it before the first run.
 - E2E tests live in `frontend/e2e/` and run via Playwright — excluded from Vitest via `vitest.config.ts`
 - E2E conventions: use `e2e/helpers.ts` (`createAndLogin(page)` registers a fresh user and lands on `/teams`; `setupTeam(page, name)` creates a team and returns its id). Generate a **unique email per test** (`Date.now()` + random suffix) — reusing one email across tests in a file causes flaky registration failures. Prefer role-based locators (`getByRole`) over text/index-based ones.
 - All mock IDs in tests must be valid UUIDs (e.g. `'00000000-0000-0000-0000-000000000001'`) — Zod uuid() validation runs inside use cases
