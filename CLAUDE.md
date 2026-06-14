@@ -181,8 +181,7 @@ import type { Baz } from '@domain/entities/game.entity.js';  // correct
 | `/games/:gameId/box-score` | BoxScorePage |
 | `/games/:gameId/log` | GameLogPage |
 | `/games/:gameId/shots` | GameShotMapPage |
-| `/opponent-teams` | OpponentTeamsPage |
-| `/opponent-teams/:id` | OpponentProfilePage |
+| `/opponent-teams/:id` | OpponentProfilePage (scouted-team detail; listing lives in the TeamsPage "Scouted" tab — the standalone `/opponent-teams` page was removed in S08) |
 | `/scouting` | ScoutingPage |
 | `/tournaments` | TournamentsPage |
 | `/tournaments/:id` | TournamentDetailPage |
@@ -280,6 +279,7 @@ import type { Baz } from '@domain/entities/game.entity.js';  // correct
 | GET | `/tournaments/:id/bracket` | ✓ | Bracket |
 | PATCH | `/tournaments/:id/slots/:slotId` | ✓ | Update bracket slot |
 | GET | `/tournaments/:id/standings` | ✓ | Standings |
+| GET | `/tournaments/:id/teams` | ✓ | Integrity-backed team list (S08, `tournament_teams`) |
 | GET | `/tournaments/:id/leaders` | ✓ | Top-5 leaders per stat category (PTS/REB/AST/STL) |
 | POST | `/tournaments/:id/share` | ✓ | Share tournament |
 | POST | `/ai/game-recap/:gameId` | ✓ | AI game recap |
@@ -314,8 +314,9 @@ import type { Baz } from '@domain/entities/game.entity.js';  // correct
 | `stat_events` | stat-events.schema.ts |
 | `stat_event_audits` | stat-events.schema.ts |
 | `lineup_snapshots` | lineup-snapshots.schema.ts |
-| `opponent_teams` | opponents.schema.ts |
-| `opponent_players` | opponents.schema.ts |
+| `opponent_teams` | opponents.schema.ts (**DEPRECATED since v1.9.0/S08** — data migrated into `teams` with `kind='external'`; read-only, dropped next release) |
+| `opponent_players` | opponents.schema.ts (**DEPRECATED since v1.9.0/S08** — data migrated into `players`; read-only, dropped next release) |
+| `tournament_teams` | tournaments.schema.ts (S08 — integrity-backed team↔tournament join, R7) |
 | `scouting_reports` | scouting.schema.ts |
 | `development_entries` | development.schema.ts |
 | `development_goals` | development.schema.ts |
@@ -356,8 +357,10 @@ import type { Baz } from '@domain/entities/game.entity.js';  // correct
 - **SeasonBoxScorePage** (`/teams/:teamId/season-box-score`): sortable table with Per-Game Average / Season Totals toggle + date range filters + a 3-state normalization control (Off | Per 40 | Per 36 → `?per=40|36`; headers adapt e.g. "PTS/40"; normalized values are rates and are never divided by GP). Linked from AnalyticsDashboard Season tab.
 - **OnOffPage** (`/teams/:teamId/analytics/on-off`): player selector dropdown, On/Off split table with PTS / OPP PTS / +/- columns and a Delta row.
 - **OpponentTeamsPage** (`/opponent-teams`): CRUD list with create/edit modal (name, league, notes). Row click navigates to profile. "Add Opponent Team" modal heading; submit button is "Add Team".
-- **OpponentProfilePage** (`/opponent-teams/:id`): team header + players table. Add/Edit per player (jersey, position, notes). Two independent TanStack queries (team detail + players). Optional opponent-team fields (`logo`, `homeCourt`, `contactName`, `contactEmail`) accept `null` — Zod schemas use `.optional().nullable()`.
-- **Opponent team ownership**: `opponent_teams.createdByUserId` (nullable FK → `users.id`, mirrors the `scouting_reports.authorUserId` pattern) scopes every `/opponent-teams*` route to `req.userId`. `GET /` filters by `eq(opponentTeams.createdByUserId, req.userId)`; `POST /` sets it on insert; all single-team and nested-player routes (`GET/PUT/DELETE /:id`, `GET/POST /:id/players`, `PUT/DELETE /:id/players/:playerId`, `GET /:id/stats`) add `eq(opponentTeams.createdByUserId, req.userId)` to the team lookup and return 404 (not 403) for teams owned by another user, to avoid leaking existence. Rows created before this column existed (`createdByUserId IS NULL`) are invisible under the new scoping.
+- **One Team Universe (S08/v1.9.0, R2+R7)**: there is ONE `teams` table and ONE `players` table. `teams.kind` is `'managed'` (your club, governed by `user_team_roles`) or `'external'` (scouted opponents, owned via `teams.createdByUserId`). Migration `0009` moved every `opponent_teams`/`opponent_players` row into `teams`/`players` **preserving UUIDs** (so the FK-less `stat_events.teamId/playerId` references became valid with zero event rewrites); `opponent_*` tables are kept read-only one release then dropped. `games` now has `homeTeamId` + `awayTeamId` BOTH NOT NULL (the `*_opponent_team_id` columns are gone); possession resolves for external away teams (no more null special-case). `createGame` resolves the away side from `awayTeamId` OR `awayTeamName` (find-or-create external via `teamRepo.findOrCreateExternalByName`), defaulting to "Unknown Opponent". Box-score name resolution joins `players` only (external players live there now).
+- **`/opponent-teams*` routes = "Scouted teams" API (thin aliases over unified tables)**: they operate on `teams` (filtered `kind='external'`) + `players`, scoped by `eq(teams.createdByUserId, req.userId)`, 404 (not 403) on cross-user access (existence not leaked) — preserving the v1.6.1 ownership semantics. Responses map `photo`→`logo` for backward compatibility. Retained one release for the TeamsPage Scouted tab + tournament team picker; `GET /:id/stats` is still a stub (filled by N-09 in S10).
+- **OpponentTeamsPage DELETED + "Opponents" nav item removed**: scouted-team listing is now the **TeamsPage "Scouted" tab** (My Teams | Scouted); `OpponentProfilePage` is retained as the scouted-team detail at `/opponent-teams/:id`, reached from that tab. `GameSetupWizard` Step 1 opponent field is a combobox (datalist over managed + scouted teams) that resolves to `awayTeamId` when the typed name matches, else sends `awayTeamName`. `LiveRecordingPage` away roster loads via `/teams/:awayTeamId/players` (no membership guard on that route) with a jersey-number quick-add (`data-testid="add-away-player"`) for players discovered mid-game.
+- **`tournament_teams` (R7)**: integrity-backed `(tournament_id FK, team_id FK, seed)` join with a unique `(tournament_id, team_id)` index; backfilled from the `tournaments.teams` JSONB entries that carry a `teamId`; dual-written on `POST /tournaments` (`repo.syncTournamentTeams`); readable via `GET /tournaments/:id/teams`. The JSONB column is retained one release for bracket-slot display (slots still index teams by seed — full bracket FK rewiring deferred).
 - **stat_events `seq` column** (double precision): backfilled from `created_at` epoch. `POST /events` accepts optional `insertAfterId` to midpoint-insert between two events; precision guard prevents collisions. Never compute `seq` inline — always derived from sibling rows. The repository orders events by `period`, then `COALESCE(seq, epoch(created_at)*1000)`, then `created_at` — keep this ordering when adding queries over events.
 - **`computePer36(box)`** in `stat-calculators.ts`: normalises all counting stats to 36 minutes of play. Returns `null` if `< 30` seconds played. Used by season stats API when `?per36=true`.
 - **Invite token flow**: `POST /teams/:id/invitations` generates a 7-day token logged to console (no SMTP). `POST /invitations/accept` joins the team or returns `{ requiresAuth: true }` if the caller has no session. Email delivery is not yet implemented.
@@ -428,7 +431,7 @@ cd frontend && npm run lint   # uses frontend/eslint.config.js
 main ← release/* ← develop ← feature/*
 ```
 
-Current state: Phase 2 (FIBA Statistical Foundation) complete; v1.6.0 added game↔tournament linking; v1.6.1 hotfixed the opponents ownership-scoping security gap; v1.7.0 reworked the live shot-recording flow and tournament team linking; v1.8.0 delivered S07 of plan v5 (`.work/implementation_plan_v5.txt` — supersedes roadmap.txt ordering): stat-integrity quick wins. Released through `v1.8.0` (tagged on `main`). All releases back-merged into `develop`. Active work starts from a new `feature/*` branch off `develop`.
+Current state: plan of record is `.work/implementation_plan_v5.txt` (supersedes roadmap.txt ordering); status tracked in `.work/NEW_status_report.md`. v1.8.0 delivered S07 (stat-integrity quick wins); **v1.9.0 delivered S08 — the One Team Universe model alignment** (merged the opponents duality into `teams`/`players`, games now have two NOT NULL team FKs, `tournament_teams` join — R2+R7 compliant). Released through `v1.9.0` (tagged on `main`). All releases back-merged into `develop`. Active work starts from a new `feature/*` branch off `develop`; next is S09 (Rosters & Eligibility, U-04 / R3–R6).
 
 | Release | Sprints | Key content |
 | --- | --- | --- |
@@ -442,5 +445,6 @@ Current state: Phase 2 (FIBA Statistical Foundation) complete; v1.6.0 added game
 | v1.6.1 | hotfix | **Security**: `opponent_teams.createdByUserId` ownership column + migration `0008`; all 10 `/opponent-teams*` routes scoped to `req.userId`, 404 on cross-user access; +3 integration tests, +1 Playwright isolation test |
 | v1.7.0 | — | Live recording: consolidated 4-button shot entry into a single "Shot" button + court-tap MADE/MISS flow (`ButtonStat`). Tournaments: `findByTeam` now returns the union of a team's own tournaments and global tournaments so the GameSetupWizard dropdown lists all available tournaments; TournamentsPage "+ New Tournament" replaces free-text team entry with a `TeamToggle` multi-select over own + opponent teams, assigning seed order |
 | v1.8.0 | S07 v5 | Stat integrity (plan v5 N-01/03/04/05/12/13): stint engine — real MIN + per-player +/- on box-score/season-stats/player-stats (`computePlayerStints`); Four Factors on box score + efficiency endpoint + Season tab card; PIP/POT/2CP/PPP/bench points from `possession_sequences` (`teamMetrics` on box-score rows + `TeamStatsStrip`); `ZoneEfficiencyTable` + frontend `classifyShotZone` port; `?per=40\|36` normalization (`computePerMinutes`) + 3-state control; units pref wired to height/weight display, language selector hidden |
+| v1.9.0 | S08 v5 | **One Team Universe (U-01/02/03, R2+R7)**: migration `0009` merges `opponent_teams`/`opponent_players` into `teams`(+`kind`,`createdByUserId`,`contactName/Email`)/`players` preserving UUIDs; `games` → two NOT NULL team FKs (opponent columns dropped), possession works for external teams; `tournament_teams` join (backfill + dual-write + `GET /tournaments/:id/teams`); `/opponent-teams*` repointed as thin aliases over the unified tables; `createGame` resolves `awayTeamId`/`awayTeamName`; box-score joins `players` only. Frontend: OpponentTeamsPage + "Opponents" nav deleted → TeamsPage **My Teams \| Scouted** tabs; wizard opponent combobox; live away-roster jersey quick-add. Tests: 189 unit / 109 integration / 67 Vitest / 43 Playwright |
 
 Never commit directly to `main` or `develop`.

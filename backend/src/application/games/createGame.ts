@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import type { IGameRepository } from '../../domain/repositories/game.repository.js';
 import type { ITournamentRepository } from '../../domain/repositories/tournament.repository.js';
+import type { ITeamRepository } from '../../infrastructure/database/repositories/team.repository.js';
 import type { Game } from '../../domain/entities/game.entity.js';
 
 export const CreateGameInput = z.object({
@@ -11,8 +12,10 @@ export const CreateGameInput = z.object({
   periodDurationMinutes: z.number().int().min(1).max(20).default(10),
   foulLimitBonus: z.number().int().min(1).max(10).default(5),
   threePointEnabled: z.boolean().default(true),
+  // U-02 — away side: either an existing team id (managed or external/scouted)
+  // or a free-typed name we find-or-create as an external team for this user.
   awayTeamId: z.string().uuid().optional(),
-  awayOpponentTeamId: z.string().uuid().optional(),
+  awayTeamName: z.string().min(1).max(200).optional(),
   notes: z.string().optional(),
   tournamentId: z.string().uuid().optional(),
 });
@@ -21,20 +24,28 @@ export type CreateGameInput = z.infer<typeof CreateGameInput>;
 export type CreateGameRawInput = z.input<typeof CreateGameInput>;
 
 export async function createGame(
-  rawInput: CreateGameRawInput & { teamId: string },
+  rawInput: CreateGameRawInput & { teamId: string; userId: string },
   gameRepo: IGameRepository,
   tournamentRepo: ITournamentRepository,
+  teamRepo: ITeamRepository,
 ): Promise<Game> {
-  const { teamId, ...rest } = rawInput;
+  const { teamId, userId, ...rest } = rawInput;
   const input = CreateGameInput.parse(rest);
+
+  // Resolve the away team (R2: every game has two teams). Priority:
+  // explicit id → find-or-create from a typed name → "Unknown Opponent".
+  let awayTeamId = input.awayTeamId;
+  if (!awayTeamId) {
+    const name = input.awayTeamName?.trim() || input.notes?.trim() || 'Unknown Opponent';
+    awayTeamId = (await teamRepo.findOrCreateExternalByName(name, userId)).id;
+  }
+
   const tournamentId = input.tournamentId
     ?? (await tournamentRepo.findOrCreateFriendlyForTeam(teamId)).id;
 
   return gameRepo.create({
     homeTeamId: teamId,
-    awayTeamId: input.awayTeamId ?? null,
-    homeOpponentTeamId: null,
-    awayOpponentTeamId: input.awayOpponentTeamId ?? null,
+    awayTeamId,
     date: input.date ? new Date(input.date) : new Date(),
     location: input.location ?? null,
     format: input.format,

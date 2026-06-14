@@ -29,7 +29,6 @@ import {
   isTeamInBonus,
 } from '../../domain/stat-calculators.js';
 import { players as playersTable } from '../../infrastructure/database/schema/players.schema.js';
-import { opponentPlayers as opponentPlayersTable } from '../../infrastructure/database/schema/opponents.schema.js';
 import { statEventAudits } from '../../infrastructure/database/schema/stat-events.schema.js';
 import { userTeamRoles } from '../../infrastructure/database/schema/users.schema.js';
 
@@ -315,23 +314,17 @@ router.get('/:gameId/box-score', async (req, res, next) => {
     }
 
     const playerIds = Array.from(playerMap.keys());
-    let nameMap = new Map<string, { firstName: string; lastName: string; jerseyNumber: number | null }>();
+    const nameMap = new Map<string, { firstName: string; lastName: string; jerseyNumber: number | null }>();
     if (playerIds.length > 0) {
-      const ownRows = await db.select({
+      // U-01 — own and external (scouted) players both live in the unified
+      // players table now, so one lookup resolves every name.
+      const rows = await db.select({
         id: playersTable.id,
         firstName: playersTable.firstName,
         lastName: playersTable.lastName,
         jerseyNumber: playersTable.jerseyNumber,
       }).from(playersTable).where(inArray(playersTable.id, playerIds));
-      for (const r of ownRows) nameMap.set(r.id, r);
-
-      const oppRows = await db.select({
-        id: opponentPlayersTable.id,
-        firstName: opponentPlayersTable.firstName,
-        lastName: opponentPlayersTable.lastName,
-        jerseyNumber: opponentPlayersTable.jerseyNumber,
-      }).from(opponentPlayersTable).where(inArray(opponentPlayersTable.id, playerIds));
-      for (const r of oppRows) nameMap.set(r.id, r);
+      for (const r of rows) nameMap.set(r.id, r);
     }
 
     // I-04 — FIBA MET-1 minutes formatting needs the game's regulation length
@@ -480,8 +473,8 @@ router.get('/:gameId', async (req: Request<{ gameId: string }>, res, next) => {
 
     // I-06 — team-foul / bonus state for the game's current period
     const events = await new DrizzleStatEventRepository(db).findByGame(req.params.gameId);
-    const homeId = game.homeTeamId ?? game.homeOpponentTeamId;
-    const awayId = game.awayTeamId ?? game.awayOpponentTeamId;
+    const homeId = game.homeTeamId;
+    const awayId = game.awayTeamId;
     const period = game.currentPeriod;
 
     const homeTeamFoulsThisPeriod = homeId ? getTeamFoulCountForPeriod(events, homeId, period) : 0;

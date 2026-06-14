@@ -7,6 +7,10 @@ import { users } from '../schema/users.schema.js';
 export interface ITeamRepository {
   findById(id: string): Promise<typeof teams.$inferSelect | null>;
   findByUser(userId: string): Promise<typeof teams.$inferSelect[]>;
+  /** U-01 — external (scouted) teams owned by the user. */
+  findExternalByUser(userId: string): Promise<typeof teams.$inferSelect[]>;
+  /** U-02 — find-or-create an external team by name for a user (mirrors findOrCreateFriendlyForTeam). */
+  findOrCreateExternalByName(name: string, userId: string): Promise<typeof teams.$inferSelect>;
   create(data: typeof teams.$inferInsert): Promise<typeof teams.$inferSelect>;
   update(id: string, data: Partial<typeof teams.$inferInsert>): Promise<typeof teams.$inferSelect>;
   softDelete(id: string): Promise<void>;
@@ -37,8 +41,43 @@ export class DrizzleTeamRepository implements ITeamRepository {
     const result = await this.db
       .select()
       .from(teams)
-      .where(and(isNull(teams.deletedAt)));
+      .where(and(eq(teams.kind, 'managed'), isNull(teams.deletedAt)));
     return result.filter((t) => teamIds.includes(t.id));
+  }
+
+  async findExternalByUser(userId: string) {
+    return this.db
+      .select()
+      .from(teams)
+      .where(
+        and(
+          eq(teams.kind, 'external'),
+          eq(teams.createdByUserId, userId),
+          isNull(teams.deletedAt),
+        ),
+      );
+  }
+
+  async findOrCreateExternalByName(name: string, userId: string) {
+    const trimmed = name.trim();
+    const existing = await this.db
+      .select()
+      .from(teams)
+      .where(
+        and(
+          eq(teams.kind, 'external'),
+          eq(teams.createdByUserId, userId),
+          eq(teams.name, trimmed),
+          isNull(teams.deletedAt),
+        ),
+      )
+      .limit(1);
+    if (existing[0]) return existing[0];
+    const rows = await this.db
+      .insert(teams)
+      .values({ name: trimmed, kind: 'external', createdByUserId: userId })
+      .returning();
+    return rows[0]!;
   }
 
   async create(data: typeof teams.$inferInsert) {

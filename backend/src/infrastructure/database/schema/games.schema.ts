@@ -1,6 +1,5 @@
 import { integer, jsonb, pgEnum, pgTable, text, timestamp, uuid } from 'drizzle-orm/pg-core';
 import { teams } from './teams.schema.js';
-import { opponentTeams } from './opponents.schema.js';
 import { tournaments } from './tournaments.schema.js';
 
 export const gameFormatEnum = pgEnum('game_format', ['quarters', 'halves']);
@@ -23,10 +22,10 @@ export const gameTemplates = pgTable('game_templates', {
 
 export const games = pgTable('games', {
   id: uuid('id').primaryKey().defaultRandom(),
-  homeTeamId: uuid('home_team_id').references(() => teams.id),
-  awayTeamId: uuid('away_team_id').references(() => teams.id),
-  homeOpponentTeamId: uuid('home_opponent_team_id').references(() => opponentTeams.id),
-  awayOpponentTeamId: uuid('away_opponent_team_id').references(() => opponentTeams.id),
+  // U-02 — every game has exactly two teams (R2). Both reference the unified
+  // teams table; the away team may be 'managed' or 'external' (scouted).
+  homeTeamId: uuid('home_team_id').references(() => teams.id).notNull(),
+  awayTeamId: uuid('away_team_id').references(() => teams.id).notNull(),
   date: timestamp('date', { withTimezone: true }).notNull(),
   location: text('location'),
   format: gameFormatEnum('format').default('quarters').notNull(),
