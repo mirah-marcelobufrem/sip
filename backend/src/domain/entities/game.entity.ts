@@ -39,10 +39,9 @@ export interface PossessionSequence {
 
 export interface Game {
   id: string;
-  homeTeamId: string | null;
-  awayTeamId: string | null;
-  homeOpponentTeamId: string | null;
-  awayOpponentTeamId: string | null;
+  // U-02 — both teams are required and reference the unified teams table.
+  homeTeamId: string;
+  awayTeamId: string;
   date: Date;
   location: string | null;
   format: GameFormat;

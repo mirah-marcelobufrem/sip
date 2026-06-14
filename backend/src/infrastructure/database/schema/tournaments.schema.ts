@@ -50,6 +50,27 @@ export const tournamentGames = pgTable('tournament_games', {
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
 });
 
+// U-03 — integrity-backed team↔tournament relation (R7). Replaces the FK-less
+// tournaments.teams JSONB as the relation of record; the JSONB is retained one
+// release for bracket-slot display (slots still index teams by seed).
+export const tournamentTeams = pgTable(
+  'tournament_teams',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tournamentId: uuid('tournament_id')
+      .notNull()
+      .references(() => tournaments.id, { onDelete: 'cascade' }),
+    teamId: uuid('team_id')
+      .notNull()
+      .references(() => teams.id),
+    seed: integer('seed').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    uniqueIndex('tournament_teams_tournament_team_unique').on(table.tournamentId, table.teamId),
+  ],
+);
+
 export interface TournamentTeamEntry {
   seed: number;
   teamId?: string;
@@ -63,3 +84,5 @@ export interface TournamentTeamEntry {
 export type Tournament = typeof tournaments.$inferSelect;
 export type NewTournament = typeof tournaments.$inferInsert;
 export type TournamentGame = typeof tournamentGames.$inferSelect;
+export type TournamentTeamRow = typeof tournamentTeams.$inferSelect;
+export type NewTournamentTeamRow = typeof tournamentTeams.$inferInsert;
