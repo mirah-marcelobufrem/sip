@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { getDb } from '../../infrastructure/database/connection.js';
 import { DrizzleGameRepository } from '../../infrastructure/database/repositories/game.repository.js';
 import { DrizzleTournamentRepository } from '../../infrastructure/database/repositories/tournament.repository.js';
+import { DrizzleTeamRepository } from '../../infrastructure/database/repositories/team.repository.js';
 import { authenticate } from '../middleware/auth.middleware.js';
 import { createGame } from '../../application/games/createGame.js';
 
@@ -26,9 +27,10 @@ router.post('/', async (req: Request<{ teamId: string }>, res, next) => {
   try {
     const db = getDb();
     const game = await createGame(
-      { ...req.body, teamId: req.params.teamId },
+      { ...req.body, teamId: req.params.teamId, userId: req.userId },
       new DrizzleGameRepository(db),
       new DrizzleTournamentRepository(db),
+      new DrizzleTeamRepository(db),
     );
     res.status(201).json(game);
   } catch (err) { next(err); }

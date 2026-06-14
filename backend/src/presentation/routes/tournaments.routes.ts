@@ -75,7 +75,20 @@ router.post('/', async (req, res, next) => {
     }
 
     await repo.insertBracketSlots(tournament.id, slots);
+    // U-03 — dual-write the integrity-backed team↔tournament relation (R7).
+    await repo.syncTournamentTeams(tournament.id, body.teams);
     res.status(201).json(tournament);
+  } catch (err) { next(err); }
+});
+
+// GET /tournaments/:id/teams — integrity-backed team list (U-03, R7)
+router.get('/:id/teams', async (req, res, next) => {
+  try {
+    const db = getDb();
+    const repo = new DrizzleTournamentRepository(db);
+    const tournament = await repo.findById(req.params.id);
+    if (!tournament) return void res.status(404).json({ error: 'Not found', code: 'NOT_FOUND' });
+    res.json(await repo.getTournamentTeams(req.params.id));
   } catch (err) { next(err); }
 });
 
