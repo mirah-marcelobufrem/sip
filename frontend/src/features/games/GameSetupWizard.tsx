@@ -79,6 +79,18 @@ export default function GameSetupWizard({ teamId, teamName, onClose }: GameSetup
     queryFn: () => api.get(`/teams/${teamId}/tournaments`),
   });
 
+  // U-02 — opponent combobox: existing managed + scouted teams (the typed
+  // value resolves to an id when it matches one, else find-or-create by name).
+  const { data: managedTeams = [] } = useQuery<{ id: string; name: string }[]>({
+    queryKey: ['teams'],
+    queryFn: () => api.get('/teams'),
+  });
+  const { data: scoutedTeams = [] } = useQuery<{ id: string; name: string }[]>({
+    queryKey: ['opponent-teams'],
+    queryFn: () => api.get('/opponent-teams'),
+  });
+  const awayOptions = [...scoutedTeams, ...managedTeams.filter((t) => t.id !== teamId)];
+
   useEffect(() => {
     if (tournamentId || tournaments.length === 0) return;
     const friendly = tournaments.find((t) => t.name === 'Friendly');
@@ -87,12 +99,16 @@ export default function GameSetupWizard({ teamId, teamName, onClose }: GameSetup
 
   const createMutation = useMutation({
     mutationFn: async (templateSave: boolean) => {
+      // Resolve the typed opponent to an existing team id when it matches,
+      // otherwise pass the name for the backend to find-or-create (R2).
+      const typed = awayTeamName.trim();
+      const matched = awayOptions.find((t) => t.name.toLowerCase() === typed.toLowerCase());
       const gameData = {
         date: date ? new Date(date).toISOString() : new Date().toISOString(),
         format,
         numPeriods,
         periodDurationMinutes: resolvedDuration,
-        notes: awayTeamName || undefined,
+        ...(matched ? { awayTeamId: matched.id } : typed ? { awayTeamName: typed } : {}),
         tournamentId: tournamentId ?? undefined,
       };
 
@@ -186,12 +202,21 @@ export default function GameSetupWizard({ teamId, teamName, onClose }: GameSetup
                 <input
                   id="wizard-away-team"
                   type="text"
+                  list="wizard-away-team-options"
                   value={awayTeamName}
                   onChange={(e) => setAwayTeamName(e.target.value)}
-                  placeholder="Opponent team name"
+                  placeholder="Pick a team or type a new opponent"
                   className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg text-sm bg-white dark:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-brand-500"
                   autoFocus
                 />
+                <datalist id="wizard-away-team-options">
+                  {awayOptions.map((t) => (
+                    <option key={t.id} value={t.name} />
+                  ))}
+                </datalist>
+                <p className="text-xs text-gray-400 mt-1">
+                  Choose an existing team or type a new name — we'll create a scouted team for it.
+                </p>
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">

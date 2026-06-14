@@ -138,6 +138,7 @@ export default function LiveRecordingPage() {
   const [showPeriodConfirm, setShowPeriodConfirm] = useState(false);
   const [teamReboundOpen, setTeamReboundOpen] = useState(false);
   const [teamReboundTeam, setTeamReboundTeam] = useState<'home' | 'away'>('home');
+  const [awayJersey, setAwayJersey] = useState('');
   const [pendingShot, setPendingShot] = useState<{
     playerId: string;
     teamId: string;
@@ -301,6 +302,20 @@ export default function LiveRecordingPage() {
   const subTeamPlayers = subTeam === 'home' ? activeHome : activeAway;
   const subTeamId = subTeam === 'home' ? game?.homeTeamId : game?.awayTeamId;
 
+  // U-02 — quick-add an away (scouted) player discovered mid-game by jersey number.
+  const addAwayPlayerMutation = useMutation({
+    mutationFn: (jersey: number) =>
+      api.post(`/teams/${game!.awayTeamId}/players`, {
+        firstName: 'Player',
+        lastName: `#${jersey}`,
+        jerseyNumber: jersey,
+      }),
+    onSuccess: () => {
+      setAwayJersey('');
+      queryClient.invalidateQueries({ queryKey: ['players', game?.awayTeamId] });
+    },
+  });
+
   if (game?.status === 'scheduled') {
     return (
       <div className="h-screen flex flex-col items-center justify-center bg-gray-900 text-white gap-4">
@@ -415,6 +430,34 @@ export default function LiveRecordingPage() {
                 <div className="col-span-5 text-center text-gray-600 py-2 text-xs">No players</div>
               )}
             </div>
+            {/* U-02 — discover an away player by jersey without leaving the game */}
+            <form
+              className="flex items-center gap-1 mt-1.5 justify-center"
+              onSubmit={(e) => {
+                e.preventDefault();
+                const n = parseInt(awayJersey, 10);
+                if (!Number.isNaN(n) && n >= 0 && n <= 99) addAwayPlayerMutation.mutate(n);
+              }}
+            >
+              <input
+                type="number"
+                min={0}
+                max={99}
+                value={awayJersey}
+                onChange={(e) => setAwayJersey(e.target.value)}
+                placeholder="#"
+                aria-label="Away jersey number"
+                className="w-12 px-2 py-1 rounded bg-gray-800 text-white text-xs text-center border border-gray-700 focus:outline-none"
+              />
+              <button
+                type="submit"
+                disabled={addAwayPlayerMutation.isPending || awayJersey === ''}
+                data-testid="add-away-player"
+                className="px-2 py-1 rounded bg-gray-700 hover:bg-gray-600 text-white text-xs font-medium disabled:opacity-50"
+              >
+                + Add
+              </button>
+            </form>
           </div>
         </div>
       </div>

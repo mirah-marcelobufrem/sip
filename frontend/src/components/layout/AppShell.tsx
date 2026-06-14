@@ -3,8 +3,9 @@ import { Outlet, NavLink, useNavigate, useLocation } from 'react-router-dom';
 import { useAuthStore } from '../../store/auth.store';
 
 const navItems = [
+  // U-01 — scouted (external) teams now live under the Teams page "Scouted" tab,
+  // so the standalone Opponents nav item was removed.
   { to: '/teams', label: 'Teams', icon: '🏀' },
-  { to: '/opponent-teams', label: 'Opponents', icon: '🆚' },
   { to: '/scouting', label: 'Scouting', icon: '🔍' },
   { to: '/tournaments', label: 'Tournaments', icon: '🏆' },
   { to: '/settings', label: 'Settings', icon: '⚙️' },
