@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { randomBytes } from 'crypto';
 import { eq, and, isNull, gt } from 'drizzle-orm';
 import { getDb } from '../../infrastructure/database/connection.js';
+import { DrizzleRosterRepository } from '../../infrastructure/database/repositories/roster.repository.js';
 import { DrizzleTeamRepository, DrizzleUserTeamRoleRepository } from '../../infrastructure/database/repositories/team.repository.js';
 import { DrizzleTournamentRepository } from '../../infrastructure/database/repositories/tournament.repository.js';
 import { authenticate } from '../middleware/auth.middleware.js';
@@ -68,6 +69,8 @@ router.post('/', async (req, res, next) => {
 
     const team = await teamRepo.create({ ...body, active: true });
     await roleRepo.upsert(req.userId, team.id, 'OWNER');
+    // U-04 — every team gets a default "Full Squad" roster from day one.
+    await new DrizzleRosterRepository(db).findOrCreateDefaultForTeam(team.id);
 
     res.status(201).json(team);
   } catch (err) { next(err); }
