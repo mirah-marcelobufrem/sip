@@ -37,7 +37,7 @@ test.describe('One Team Universe — both-sides capture', () => {
     await expect(page.getByText('Step 2 of 4')).toBeVisible();
     await page.getByRole('button', { name: 'Next' }).click();
     await expect(page.getByText('Step 3 of 4')).toBeVisible();
-    await page.getByRole('button', { name: /Starter/ }).click(); // toggle Homer as a starter
+    await page.getByTestId('starter-toggle').first().click(); // mark Homer a starter (S09 flow)
     await page.getByRole('button', { name: 'Next' }).click();
     await expect(page.getByText('Step 4 of 4')).toBeVisible();
     await page.getByRole('button', { name: 'Create Game' }).click();

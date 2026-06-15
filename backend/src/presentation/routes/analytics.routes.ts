@@ -5,6 +5,7 @@ import { DrizzleGameRepository } from '../../infrastructure/database/repositorie
 import { DrizzleStatEventRepository } from '../../infrastructure/database/repositories/stat-event.repository.js';
 import { DrizzlePlayerRepository } from '../../infrastructure/database/repositories/player.repository.js';
 import { DrizzleLineupSnapshotRepository } from '../../infrastructure/database/repositories/lineup-snapshot.repository.js';
+import { DrizzleRosterRepository } from '../../infrastructure/database/repositories/roster.repository.js';
 import { authenticate } from '../middleware/auth.middleware.js';
 import {
   aggregatePlayerEvents,
@@ -83,6 +84,24 @@ router.get('/teams/:teamId/players/season-stats', async (req: Request<{ teamId: 
     const gameIds = new Set(games.map((g) => g.id));
     const perBase = query.per === '40' ? 40 : query.per === '36' || query.per36 === 'true' ? 36 : null;
 
+    // U-04 — roster context: GP/DNP per the game-day roster (R3–R6). For each
+    // filtered game, the roster that applies to THIS team is its home/away
+    // roster depending on which side it was. A player counts as "on roster" for
+    // every such game whose roster lists them.
+    const teamRosters = await new DrizzleRosterRepository(db).findByTeam(req.params.teamId);
+    const rosterPlayerSet = new Map<string, Set<string>>(
+      teamRosters.map((r) => [r.id, new Set(r.playerIds)]),
+    );
+    const gamesOnRosterByPlayer = new Map<string, number>();
+    for (const game of games) {
+      const rosterId = game.homeTeamId === req.params.teamId ? game.homeRosterId : game.awayRosterId;
+      const set = rosterId ? rosterPlayerSet.get(rosterId) : undefined;
+      if (!set) continue;
+      for (const pid of set) {
+        gamesOnRosterByPlayer.set(pid, (gamesOnRosterByPlayer.get(pid) ?? 0) + 1);
+      }
+    }
+
     // N-01 — stint totals (minutes + plus/minus) accumulated across the
     // filtered games; one pass per game, shared by every player row below
     const stintTotalsByPlayer = new Map<string, { minSeconds: number; plusMinus: number }>();
@@ -104,8 +123,10 @@ router.get('/teams/:teamId/players/season-stats', async (req: Request<{ teamId: 
       players.map(async (player) => {
         const events = await new DrizzleStatEventRepository(db).findByPlayer(player.id);
         const gameEvents = events.filter((e) => gameIds.has(e.gameId));
+        const gamesOnRoster = gamesOnRosterByPlayer.get(player.id) ?? 0;
         if (gameEvents.length === 0) {
-          return { player, box: null, derived: null, gamesPlayed: 0 };
+          // Rostered but never recorded an action → DNP for every rostered game.
+          return { player, box: null, derived: null, gamesPlayed: 0, gamesOnRoster, dnp: gamesOnRoster };
         }
         const box = aggregatePlayerEvents(gameEvents);
         const gamesPlayed = new Set(gameEvents.map((e) => e.gameId)).size;
@@ -133,11 +154,13 @@ router.get('/teams/:teamId/players/season-stats', async (req: Request<{ teamId: 
           }
         }
 
-        return { player, box, derived, gamesPlayed, minutesDisplay };
+        const dnp = Math.max(0, gamesOnRoster - gamesPlayed);
+        return { player, box, derived, gamesPlayed, gamesOnRoster, dnp, minutesDisplay };
       }),
     );
 
-    res.json(rows.filter((r) => r.gamesPlayed > 0));
+    // Include players who played OR were rostered (the latter render as DNP).
+    res.json(rows.filter((r) => r.gamesPlayed > 0 || r.gamesOnRoster > 0));
   } catch (err) { next(err); }
 });
 

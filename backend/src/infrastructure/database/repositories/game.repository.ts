@@ -32,6 +32,8 @@ export class DrizzleGameRepository implements IGameRepository {
     const rows = await this.db.insert(games).values({
       homeTeamId: data.homeTeamId,
       awayTeamId: data.awayTeamId,
+      homeRosterId: data.homeRosterId,
+      awayRosterId: data.awayRosterId,
       date: data.date,
       location: data.location,
       format: data.format,
@@ -68,6 +70,8 @@ export class DrizzleGameRepository implements IGameRepository {
       id: row.id,
       homeTeamId: row.homeTeamId,
       awayTeamId: row.awayTeamId,
+      homeRosterId: row.homeRosterId,
+      awayRosterId: row.awayRosterId,
       date: row.date,
       location: row.location,
       format: row.format as Game['format'],

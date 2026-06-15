@@ -33,7 +33,17 @@ interface Tournament {
   name: string;
 }
 
+interface Roster {
+  id: string;
+  name: string;
+  isDefault: boolean;
+  playerIds: string[];
+}
+
 type Format = 'quarters' | 'halves';
+
+// FIBA caps the game-day roster at 12 (configurable here in one place).
+const GAME_DAY_CAP = 12;
 
 export default function GameSetupWizard({ teamId, teamName, onClose }: GameSetupWizardProps) {
   const navigate = useNavigate();
@@ -51,7 +61,9 @@ export default function GameSetupWizard({ teamId, teamName, onClose }: GameSetup
   const [overtimeEnabled, setOvertimeEnabled] = useState(false);
   const [overtimeDuration, setOvertimeDuration] = useState(5);
 
-  // Step 3 — Starting Lineups
+  // Step 3 — Roster → game-day list → starters
+  const [rosterId, setRosterId] = useState<string | null>(null);
+  const [gameDayIds, setGameDayIds] = useState<string[]>([]);
   const [homeStarters, setHomeStarters] = useState<string[]>([]);
 
   // Step 4 — Template
@@ -79,6 +91,13 @@ export default function GameSetupWizard({ teamId, teamName, onClose }: GameSetup
     queryFn: () => api.get(`/teams/${teamId}/tournaments`),
   });
 
+  // U-04 — Step 3 rosters; default ("Full Squad") preselected.
+  const { data: rosters = [] } = useQuery<Roster[]>({
+    queryKey: ['rosters', teamId],
+    queryFn: () => api.get(`/teams/${teamId}/rosters`),
+  });
+  const selectedRoster = rosters.find((r) => r.id === rosterId) ?? null;
+
   // U-02 — opponent combobox: existing managed + scouted teams (the typed
   // value resolves to an id when it matches one, else find-or-create by name).
   const { data: managedTeams = [] } = useQuery<{ id: string; name: string }[]>({
@@ -97,6 +116,22 @@ export default function GameSetupWizard({ teamId, teamName, onClose }: GameSetup
     setTournamentId((friendly ?? tournaments[0]).id);
   }, [tournaments, tournamentId]);
 
+  // Preselect the default roster and seed the game-day list from it (cap 12).
+  useEffect(() => {
+    if (rosterId || rosters.length === 0) return;
+    const def = rosters.find((r) => r.isDefault) ?? rosters[0];
+    setRosterId(def.id);
+    setGameDayIds(def.playerIds.slice(0, GAME_DAY_CAP));
+  }, [rosters, rosterId]);
+
+  function selectRoster(id: string) {
+    setRosterId(id);
+    const r = rosters.find((x) => x.id === id);
+    const ids = (r?.playerIds ?? []).slice(0, GAME_DAY_CAP);
+    setGameDayIds(ids);
+    setHomeStarters((prev) => prev.filter((p) => ids.includes(p)));
+  }
+
   const createMutation = useMutation({
     mutationFn: async (templateSave: boolean) => {
       // Resolve the typed opponent to an existing team id when it matches,
@@ -109,6 +144,7 @@ export default function GameSetupWizard({ teamId, teamName, onClose }: GameSetup
         numPeriods,
         periodDurationMinutes: resolvedDuration,
         ...(matched ? { awayTeamId: matched.id } : typed ? { awayTeamName: typed } : {}),
+        ...(rosterId ? { homeRosterId: rosterId } : {}),
         tournamentId: tournamentId ?? undefined,
       };
 
@@ -336,51 +372,101 @@ export default function GameSetupWizard({ teamId, teamName, onClose }: GameSetup
             </>
           )}
 
-          {/* Step 3 — Starting Lineups */}
+          {/* Step 3 — Roster → game-day list → starters */}
           {step === 3 && (
             <>
-              <p className="text-sm font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider text-xs">Starting Lineup — Home Team</p>
+              <p className="text-sm font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider text-xs">Roster &amp; Lineup — Home Team</p>
+
+              {/* Roster select (default preselected) */}
+              <div>
+                <label htmlFor="wizard-roster" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Roster</label>
+                <select
+                  id="wizard-roster"
+                  value={rosterId ?? ''}
+                  onChange={(e) => selectRoster(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg text-sm bg-white dark:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-brand-500"
+                >
+                  {rosters.length === 0 && <option value="">No rosters</option>}
+                  {rosters.map((r) => (
+                    <option key={r.id} value={r.id}>{r.name}{r.isDefault ? ' (default)' : ''}</option>
+                  ))}
+                </select>
+              </div>
+
               {(() => {
-                const activePlayers = homePlayers.filter((p) => p.status === 'active');
-                if (activePlayers.length === 0) {
+                const rosterPlayerIds = selectedRoster?.playerIds ?? [];
+                const rosterPlayers = homePlayers.filter((p) => rosterPlayerIds.includes(p.id));
+                if (rosterPlayers.length === 0) {
                   return (
                     <p className="text-sm text-gray-400 dark:text-gray-500 text-center py-4">
-                      No active players — lineups can be set from the Live Recording page.
+                      This roster has no players — lineups can be set from the Live Recording page.
                     </p>
                   );
                 }
                 return (
                   <>
-                    <div className="space-y-2">
-                      {activePlayers.map((player) => {
-                        const selected = homeStarters.includes(player.id);
-                        return (
-                          <button
-                            key={player.id}
-                            type="button"
-                            onClick={() => {
-                              if (selected) {
-                                setHomeStarters((prev) => prev.filter((id) => id !== player.id));
-                              } else if (homeStarters.length < 5) {
-                                setHomeStarters((prev) => [...prev, player.id]);
-                              }
-                            }}
-                            className={`w-full rounded-lg px-3 py-2 cursor-pointer text-sm flex items-center gap-2 text-left transition-colors ${
-                              selected
-                                ? 'ring-2 ring-brand-500 bg-brand-50 dark:bg-brand-900/20 text-gray-900 dark:text-gray-100'
-                                : 'border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800 text-gray-700 dark:text-gray-300'
-                            }`}
-                          >
-                            <span className="w-7 text-center font-mono text-xs text-gray-400 dark:text-gray-500 shrink-0">
-                              {player.jerseyNumber != null ? `#${player.jerseyNumber}` : '—'}
-                            </span>
-                            <span className="font-medium">{player.firstName} {player.lastName}</span>
-                            {player.position && (
-                              <span className="ml-auto text-xs text-gray-400 dark:text-gray-500">{player.position}</span>
-                            )}
-                          </button>
-                        );
-                      })}
+                    {/* Game-day list (FIBA cap 12) */}
+                    <div>
+                      <p className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Game-day list ({gameDayIds.length}/{GAME_DAY_CAP})</p>
+                      <div className="space-y-2">
+                        {rosterPlayers.map((player) => {
+                          const inGameDay = gameDayIds.includes(player.id);
+                          const isStarter = homeStarters.includes(player.id);
+                          return (
+                            <div
+                              key={player.id}
+                              className={`w-full rounded-lg px-3 py-2 text-sm flex items-center gap-2 transition-colors ${
+                                inGameDay
+                                  ? 'border border-gray-200 dark:border-gray-700'
+                                  : 'border border-dashed border-gray-200 dark:border-gray-700 opacity-50'
+                              }`}
+                            >
+                              <button
+                                type="button"
+                                data-testid="gameday-toggle"
+                                onClick={() => {
+                                  if (inGameDay) {
+                                    setGameDayIds((prev) => prev.filter((id) => id !== player.id));
+                                    setHomeStarters((prev) => prev.filter((id) => id !== player.id));
+                                  } else if (gameDayIds.length < GAME_DAY_CAP) {
+                                    setGameDayIds((prev) => [...prev, player.id]);
+                                  }
+                                }}
+                                className={`w-5 h-5 rounded border flex items-center justify-center shrink-0 ${
+                                  inGameDay ? 'bg-brand-600 border-brand-600 text-white' : 'border-gray-300 dark:border-gray-600'
+                                }`}
+                                aria-label={inGameDay ? 'Remove from game-day list' : 'Add to game-day list'}
+                              >
+                                {inGameDay ? '✓' : ''}
+                              </button>
+                              <span className="w-7 text-center font-mono text-xs text-gray-400 dark:text-gray-500 shrink-0">
+                                {player.jerseyNumber != null ? `#${player.jerseyNumber}` : '—'}
+                              </span>
+                              <span className="font-medium text-gray-900 dark:text-gray-100">{player.firstName} {player.lastName}</span>
+                              {inGameDay && (
+                                <button
+                                  type="button"
+                                  data-testid="starter-toggle"
+                                  onClick={() => {
+                                    if (isStarter) {
+                                      setHomeStarters((prev) => prev.filter((id) => id !== player.id));
+                                    } else if (homeStarters.length < 5) {
+                                      setHomeStarters((prev) => [...prev, player.id]);
+                                    }
+                                  }}
+                                  className={`ml-auto text-xs px-2 py-0.5 rounded-full font-medium transition-colors ${
+                                    isStarter
+                                      ? 'bg-brand-600 text-white'
+                                      : 'bg-gray-100 dark:bg-gray-800 text-gray-500 hover:bg-gray-200 dark:hover:bg-gray-700'
+                                  }`}
+                                >
+                                  {isStarter ? 'Starter' : 'Bench'}
+                                </button>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
                     </div>
                     <p className="text-xs text-gray-400 dark:text-gray-500 text-center pt-1">
                       {homeStarters.length} of 5 starters selected

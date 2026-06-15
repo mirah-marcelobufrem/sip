@@ -2,6 +2,7 @@ import express, { Router, type Request } from 'express';
 import { z } from 'zod';
 import { getDb } from '../../infrastructure/database/connection.js';
 import { DrizzlePlayerRepository } from '../../infrastructure/database/repositories/player.repository.js';
+import { DrizzleRosterRepository } from '../../infrastructure/database/repositories/roster.repository.js';
 import { authenticate } from '../middleware/auth.middleware.js';
 
 const router = Router({ mergeParams: true });
@@ -37,6 +38,10 @@ router.post('/', async (req: Request<{ teamId: string }>, res, next) => {
       teamId: req.params.teamId,
       status: body.status ?? 'active',
     });
+    // U-04 — keep the default "Full Squad" roster in sync with the roster list.
+    const rosterRepo = new DrizzleRosterRepository(db);
+    const def = await rosterRepo.findOrCreateDefaultForTeam(req.params.teamId);
+    await rosterRepo.addPlayer(def.id, player.id);
     res.status(201).json(player);
   } catch (err) { next(err); }
 });
@@ -81,6 +86,8 @@ router.post('/import', express.text({ type: ['text/csv', 'text/plain'] }), async
     const headers = lines[0]!.split(',').map((h) => h.trim().replace(/"/g, ''));
     const db = getDb();
     const repo = new DrizzlePlayerRepository(db);
+    const rosterRepo = new DrizzleRosterRepository(db);
+    const defaultRoster = await rosterRepo.findOrCreateDefaultForTeam(req.params.teamId);
     let imported = 0;
     const errors: string[] = [];
 
@@ -92,7 +99,7 @@ router.post('/import', express.text({ type: ['text/csv', 'text/plain'] }), async
         continue;
       }
       const pos = row['position'] ?? '';
-      await repo.create({
+      const created = await repo.create({
         teamId: req.params.teamId,
         firstName: row['firstName'],
         lastName: row['lastName'],
@@ -105,6 +112,7 @@ router.post('/import', express.text({ type: ['text/csv', 'text/plain'] }), async
         notes: row['notes'] || undefined,
         status: 'active',
       });
+      await rosterRepo.addPlayer(defaultRoster.id, created.id);
       imported++;
     }
     res.json({ imported, skipped: errors.length, errors });

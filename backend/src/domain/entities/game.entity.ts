@@ -42,6 +42,9 @@ export interface Game {
   // U-02 — both teams are required and reference the unified teams table.
   homeTeamId: string;
   awayTeamId: string;
+  // U-04 — game-day roster per side (nullable; external teams may have none).
+  homeRosterId: string | null;
+  awayRosterId: string | null;
   date: Date;
   location: string | null;
   format: GameFormat;
