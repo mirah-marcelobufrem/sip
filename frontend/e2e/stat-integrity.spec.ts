@@ -39,9 +39,10 @@ async function setupLiveGameWithStarter(page: Page, suffix: string): Promise<str
   await expect(page.getByText('Step 2 of 4')).toBeVisible();
   await page.getByRole('button', { name: 'Next' }).click();
 
-  // Step 3 — toggle the player as a starter so the initial lineup is recorded
+  // Step 3 — the player is auto on the default roster's game-day list; mark it
+  // a starter (S09 flow) so the initial lineup is recorded for the stint engine.
   await expect(page.getByText('Step 3 of 4')).toBeVisible();
-  await page.getByRole('button', { name: /Tracker/ }).click();
+  await page.getByTestId('starter-toggle').first().click();
   await page.getByRole('button', { name: 'Next' }).click();
 
   await expect(page.getByText('Step 4 of 4')).toBeVisible();

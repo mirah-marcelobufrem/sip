@@ -6,6 +6,7 @@ import { DrizzleGameRepository } from '../../infrastructure/database/repositorie
 import { DrizzleStatEventRepository } from '../../infrastructure/database/repositories/stat-event.repository.js';
 import { DrizzleLineupSnapshotRepository } from '../../infrastructure/database/repositories/lineup-snapshot.repository.js';
 import { DrizzlePossessionSequenceRepository } from '../../infrastructure/database/repositories/possession.repository.js';
+import { DrizzleRosterRepository } from '../../infrastructure/database/repositories/roster.repository.js';
 import { recordStatEvent, RecordStatEventInput } from '../../application/games/recordStatEvent.js';
 import { recordSubstitution, RecordSubstitutionInput } from '../../application/games/recordSubstitution.js';
 import { deleteStatEvent } from '../../application/games/deleteStatEvent.js';
@@ -129,6 +130,7 @@ router.post('/:gameId/events', async (req, res, next) => {
       new DrizzleLineupSnapshotRepository(db),
       new DrizzleGameRepository(db),
       new DrizzlePossessionSequenceRepository(db),
+      new DrizzleRosterRepository(db),
     );
     res.status(201).json(event);
   } catch (err) {

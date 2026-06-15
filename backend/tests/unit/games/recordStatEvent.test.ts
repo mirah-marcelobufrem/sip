@@ -46,6 +46,8 @@ function makeGame(overrides: Partial<Game> = {}): Game {
     id: GAME_ID,
     homeTeamId: TEAM_ID,
     awayTeamId: AWAY_TEAM_ID,
+    homeRosterId: null,
+    awayRosterId: null,
     date: new Date(),
     location: null,
     format: 'quarters',

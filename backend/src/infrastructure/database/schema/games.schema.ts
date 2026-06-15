@@ -1,5 +1,6 @@
 import { integer, jsonb, pgEnum, pgTable, text, timestamp, uuid } from 'drizzle-orm/pg-core';
 import { teams } from './teams.schema.js';
+import { rosters } from './rosters.schema.js';
 import { tournaments } from './tournaments.schema.js';
 
 export const gameFormatEnum = pgEnum('game_format', ['quarters', 'halves']);
@@ -26,6 +27,11 @@ export const games = pgTable('games', {
   // teams table; the away team may be 'managed' or 'external' (scouted).
   homeTeamId: uuid('home_team_id').references(() => teams.id).notNull(),
   awayTeamId: uuid('away_team_id').references(() => teams.id).notNull(),
+  // U-04 — each game side references the roster (game-day list) it was played
+  // with. Nullable: backfilled to each team's default "Full Squad" roster by
+  // migration 0010; external/scouted teams may have no roster (left null).
+  homeRosterId: uuid('home_roster_id').references(() => rosters.id),
+  awayRosterId: uuid('away_roster_id').references(() => rosters.id),
   date: timestamp('date', { withTimezone: true }).notNull(),
   location: text('location'),
   format: gameFormatEnum('format').default('quarters').notNull(),
