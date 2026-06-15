@@ -36,6 +36,9 @@ interface Game {
   id: string;
   homeTeamId: string | null;
   awayTeamId: string | null;
+  // U-04 — game-day rosters; when present the tap grids show roster players only.
+  homeRosterId?: string | null;
+  awayRosterId?: string | null;
   status: string;
   currentPeriod: number;
   numPeriods: number;
@@ -163,6 +166,18 @@ export default function LiveRecordingPage() {
     enabled: !!game?.awayTeamId,
   });
 
+  // U-04 — game-day roster player sets (when the game references a roster).
+  const { data: homeRoster } = useQuery<{ playerIds: string[] }>({
+    queryKey: ['roster', game?.homeRosterId],
+    queryFn: () => api.get(`/teams/${game!.homeTeamId}/rosters/${game!.homeRosterId}`),
+    enabled: !!game?.homeTeamId && !!game?.homeRosterId,
+  });
+  const { data: awayRoster } = useQuery<{ playerIds: string[] }>({
+    queryKey: ['roster', game?.awayRosterId],
+    queryFn: () => api.get(`/teams/${game!.awayTeamId}/rosters/${game!.awayRosterId}`),
+    enabled: !!game?.awayTeamId && !!game?.awayRosterId,
+  });
+
   const { data: events = [] } = useQuery<StatEvent[]>({
     queryKey: ['game-log', gameId],
     queryFn: () => api.get(`/games/${gameId}/log`),
@@ -175,8 +190,16 @@ export default function LiveRecordingPage() {
   const homeScore = useMemo(() => calcScore(events, game?.homeTeamId ?? null), [events, game]);
   const awayScore = useMemo(() => calcScore(events, game?.awayTeamId ?? null), [events, game]);
 
-  const activeHome = homePlayers.filter((p) => !p.status || p.status === 'active');
-  const activeAway = awayPlayers.filter((p) => !p.status || p.status === 'active');
+  // Tap grids show the game-day roster only (shorter grids = faster, fewer
+  // mis-taps). Falls back to all active players when the game has no roster.
+  const homeRosterSet = homeRoster ? new Set(homeRoster.playerIds) : null;
+  const awayRosterSet = awayRoster ? new Set(awayRoster.playerIds) : null;
+  const activeHome = homePlayers.filter(
+    (p) => (homeRosterSet ? homeRosterSet.has(p.id) : !p.status || p.status === 'active'),
+  );
+  const activeAway = awayPlayers.filter(
+    (p) => (awayRosterSet ? awayRosterSet.has(p.id) : !p.status || p.status === 'active'),
+  );
 
   const startMutation = useMutation({
     mutationFn: () => api.post(`/games/${gameId}/start`, {}),

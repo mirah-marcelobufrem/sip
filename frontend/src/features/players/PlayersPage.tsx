@@ -3,6 +3,7 @@ import { useParams, Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../../lib/api';
 import { useAuthStore } from '../../store/auth.store';
+import RosterManager from './RosterManager';
 
 interface Player {
   id: string;
@@ -142,6 +143,7 @@ export default function PlayersPage() {
     const data = await res.json() as { imported: number; skipped: number };
     setCsvResult(data);
     queryClient.invalidateQueries({ queryKey: ['players', teamId] });
+    queryClient.invalidateQueries({ queryKey: ['rosters', teamId] });
     e.target.value = '';
   };
 
@@ -154,6 +156,8 @@ export default function PlayersPage() {
     mutationFn: (data: object) => api.post(`/teams/${teamId}/players`, data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['players', teamId] });
+      // New players join the default "Full Squad" roster — refresh the manager.
+      queryClient.invalidateQueries({ queryKey: ['rosters', teamId] });
       setShowAdd(false);
     },
   });
@@ -258,6 +262,9 @@ export default function PlayersPage() {
           <p className="text-center text-gray-400 py-10">No players yet. Add your first player.</p>
         )}
       </div>
+
+      {/* U-04 — roster manager (create/copy rosters, edit membership) */}
+      {teamId && <RosterManager teamId={teamId} players={players} />}
 
       {/* Add player modal */}
       {showAdd && (

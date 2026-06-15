@@ -218,6 +218,14 @@ import type { Baz } from '@domain/entities/game.entity.js';  // correct
 | GET | `/teams/:teamId/players/:id` | ✓ | Get player |
 | PUT | `/teams/:teamId/players/:id` | ✓ | Update player |
 | DELETE | `/teams/:teamId/players/:id` | ✓ | Delete player |
+| GET | `/teams/:teamId/rosters` | ✓ | List rosters (with `playerIds`) |
+| POST | `/teams/:teamId/rosters` | ✓ | Create roster (optional `playerIds`/`copyFromRosterId`; R6) |
+| GET | `/teams/:teamId/rosters/:rosterId` | ✓ | Get roster (with `playerIds`) |
+| PUT | `/teams/:teamId/rosters/:rosterId` | ✓ | Update roster (name/season/default) |
+| DELETE | `/teams/:teamId/rosters/:rosterId` | ✓ | Soft-delete roster |
+| PUT | `/teams/:teamId/rosters/:rosterId/players` | ✓ | Replace full player set (R6) |
+| POST | `/teams/:teamId/rosters/:rosterId/players` | ✓ | Add player (R6) |
+| DELETE | `/teams/:teamId/rosters/:rosterId/players/:playerId` | ✓ | Remove player |
 | GET | `/teams/:teamId/games` | ✓ | List games (optional `?tournamentId=`) |
 | POST | `/teams/:teamId/games` | ✓ | Create game (optional `tournamentId`; defaults to the team's "Friendly" tournament) |
 | GET | `/teams/:teamId/games/season-stats` | ✓ | Season aggregate stats |
@@ -298,7 +306,7 @@ import type { Baz } from '@domain/entities/game.entity.js';  // correct
 | GET | `/account/export` | ✓ | LGPD/GDPR data export (JSON download) |
 | DELETE | `/account` | ✓ | Delete account (soft-delete + anonymize) |
 
-## Database Schema (23 tables)
+## Database Schema (25 tables)
 
 | Table | Schema file |
 | --- | --- |
@@ -309,6 +317,8 @@ import type { Baz } from '@domain/entities/game.entity.js';  // correct
 | `organizations` | organizations.schema.ts |
 | `teams` | teams.schema.ts |
 | `players` | players.schema.ts |
+| `rosters` | rosters.schema.ts (S09 — team's N rosters; `is_default` "Full Squad"; `team_id` FK) |
+| `roster_players` | rosters.schema.ts (S09 — unique `(roster_id, player_id)` join) |
 | `games` | games.schema.ts |
 | `game_templates` | games.schema.ts |
 | `stat_events` | stat-events.schema.ts |
@@ -361,6 +371,7 @@ import type { Baz } from '@domain/entities/game.entity.js';  // correct
 - **`/opponent-teams*` routes = "Scouted teams" API (thin aliases over unified tables)**: they operate on `teams` (filtered `kind='external'`) + `players`, scoped by `eq(teams.createdByUserId, req.userId)`, 404 (not 403) on cross-user access (existence not leaked) — preserving the v1.6.1 ownership semantics. Responses map `photo`→`logo` for backward compatibility. Retained one release for the TeamsPage Scouted tab + tournament team picker; `GET /:id/stats` is still a stub (filled by N-09 in S10).
 - **OpponentTeamsPage DELETED + "Opponents" nav item removed**: scouted-team listing is now the **TeamsPage "Scouted" tab** (My Teams | Scouted); `OpponentProfilePage` is retained as the scouted-team detail at `/opponent-teams/:id`, reached from that tab. `GameSetupWizard` Step 1 opponent field is a combobox (datalist over managed + scouted teams) that resolves to `awayTeamId` when the typed name matches, else sends `awayTeamName`. `LiveRecordingPage` away roster loads via `/teams/:awayTeamId/players` (no membership guard on that route) with a jersey-number quick-add (`data-testid="add-away-player"`) for players discovered mid-game.
 - **`tournament_teams` (R7)**: integrity-backed `(tournament_id FK, team_id FK, seed)` join with a unique `(tournament_id, team_id)` index; backfilled from the `tournaments.teams` JSONB entries that carry a `teamId`; dual-written on `POST /tournaments` (`repo.syncTournamentTeams`); readable via `GET /tournaments/:id/teams`. The JSONB column is retained one release for bracket-slot display (slots still index teams by seed — full bracket FK rewiring deferred).
+- **Rosters & Eligibility (S09/v1.10.0, R3–R6)**: a team has N `rosters` (each `team_id` FK, soft-deleted); `roster_players` is the unique `(roster_id, player_id)` join; every `games` side has a nullable `home_roster_id`/`away_roster_id` FK. Each team has exactly one `is_default` **"Full Squad"** roster, find-or-created via `DrizzleRosterRepository.findOrCreateDefaultForTeam` and kept in sync on team-create + player-create + CSV-import (new players auto-join it). **R6 is enforced in `application/rosters/*`** (`assertPlayersBelongToTeam`): a player may only join a roster of their own team (`FORBIDDEN`) — never bypass it when adding membership. `createGame` defaults `homeRosterId`/`awayRosterId` to each team's default roster (explicit ids win). `recordStatEvent` emits a best-effort `console.warn` (never hard-fails) when a player records a player-action while off that side's game roster — the future F-03 flag consumer reads this. Season-stats (`/teams/:teamId/players/season-stats`) adds `gamesOnRoster` + `dnp` from the game roster; `gamesPlayed` keeps its actually-played meaning (drives averages). Frontend: `RosterManager.tsx` on the Roster page (toggle-based membership, not literal drag); `GameSetupWizard` Step 3 = roster select (default preselected) → game-day list (`GAME_DAY_CAP = 12`) → starters (5); `LiveRecordingPage` tap grids show the game-day roster only, falling back to active players for roster-less games.
 - **stat_events `seq` column** (double precision): backfilled from `created_at` epoch. `POST /events` accepts optional `insertAfterId` to midpoint-insert between two events; precision guard prevents collisions. Never compute `seq` inline — always derived from sibling rows. The repository orders events by `period`, then `COALESCE(seq, epoch(created_at)*1000)`, then `created_at` — keep this ordering when adding queries over events.
 - **`computePer36(box)`** in `stat-calculators.ts`: normalises all counting stats to 36 minutes of play. Returns `null` if `< 30` seconds played. Used by season stats API when `?per36=true`.
 - **Invite token flow**: `POST /teams/:id/invitations` generates a 7-day token logged to console (no SMTP). `POST /invitations/accept` joins the team or returns `{ requiresAuth: true }` if the caller has no session. Email delivery is not yet implemented.
@@ -431,7 +442,7 @@ cd frontend && npm run lint   # uses frontend/eslint.config.js
 main ← release/* ← develop ← feature/*
 ```
 
-Current state: plan of record is `.work/implementation_plan_v5.txt` (supersedes roadmap.txt ordering); status tracked in `.work/NEW_status_report.md`. v1.8.0 delivered S07 (stat-integrity quick wins); **v1.9.0 delivered S08 — the One Team Universe model alignment** (merged the opponents duality into `teams`/`players`, games now have two NOT NULL team FKs, `tournament_teams` join — R2+R7 compliant). Released through `v1.9.0` (tagged on `main`). All releases back-merged into `develop`. Active work starts from a new `feature/*` branch off `develop`; next is S09 (Rosters & Eligibility, U-04 / R3–R6).
+Current state: plan of record is `.work/implementation_plan_v5.txt` (supersedes roadmap.txt ordering); status tracked in `.work/NEW_status_report.md`. v1.8.0 delivered S07 (stat-integrity quick wins); v1.9.0 delivered S08 (One Team Universe, R2+R7); **v1.10.0 delivered S09 — Rosters & Eligibility (U-04, R3–R6)** (`rosters`/`roster_players` tables, default "Full Squad" roster per team, game-day rosters on `games`, R6 enforcement, eligibility warning, season-stats DNP). Released through `v1.10.0` (tagged on `main`). All releases back-merged into `develop`. Active work starts from a new `feature/*` branch off `develop`; next is S10 (Scouting Intelligence, N-09 / N-08 / N-10).
 
 | Release | Sprints | Key content |
 | --- | --- | --- |
@@ -446,5 +457,6 @@ Current state: plan of record is `.work/implementation_plan_v5.txt` (supersedes 
 | v1.7.0 | — | Live recording: consolidated 4-button shot entry into a single "Shot" button + court-tap MADE/MISS flow (`ButtonStat`). Tournaments: `findByTeam` now returns the union of a team's own tournaments and global tournaments so the GameSetupWizard dropdown lists all available tournaments; TournamentsPage "+ New Tournament" replaces free-text team entry with a `TeamToggle` multi-select over own + opponent teams, assigning seed order |
 | v1.8.0 | S07 v5 | Stat integrity (plan v5 N-01/03/04/05/12/13): stint engine — real MIN + per-player +/- on box-score/season-stats/player-stats (`computePlayerStints`); Four Factors on box score + efficiency endpoint + Season tab card; PIP/POT/2CP/PPP/bench points from `possession_sequences` (`teamMetrics` on box-score rows + `TeamStatsStrip`); `ZoneEfficiencyTable` + frontend `classifyShotZone` port; `?per=40\|36` normalization (`computePerMinutes`) + 3-state control; units pref wired to height/weight display, language selector hidden |
 | v1.9.0 | S08 v5 | **One Team Universe (U-01/02/03, R2+R7)**: migration `0009` merges `opponent_teams`/`opponent_players` into `teams`(+`kind`,`createdByUserId`,`contactName/Email`)/`players` preserving UUIDs; `games` → two NOT NULL team FKs (opponent columns dropped), possession works for external teams; `tournament_teams` join (backfill + dual-write + `GET /tournaments/:id/teams`); `/opponent-teams*` repointed as thin aliases over the unified tables; `createGame` resolves `awayTeamId`/`awayTeamName`; box-score joins `players` only. Frontend: OpponentTeamsPage + "Opponents" nav deleted → TeamsPage **My Teams \| Scouted** tabs; wizard opponent combobox; live away-roster jersey quick-add. Tests: 189 unit / 109 integration / 67 Vitest / 43 Playwright |
+| v1.10.0 | S09 v5 | **Rosters & Eligibility (U-04, R3–R6)**: migration `0010` adds `rosters` (+`is_default` "Full Squad") + `roster_players` (unique pair) and nullable `home_roster_id`/`away_roster_id` on `games`; one default roster per team backfilled + every game side (zero behavior change). R6 enforced in `application/rosters/*` (`assertPlayersBelongToTeam`); rosters CRUD under `/teams/:teamId/rosters` (+ members); `createGame` accepts `homeRosterId`/`awayRosterId` (defaults to each team's default); team/player create keep the default roster in sync (`findOrCreateDefaultForTeam`); `recordStatEvent` emits a best-effort eligibility `console.warn`; season-stats adds `gamesOnRoster`+`dnp`. Frontend: RosterManager on the Roster page; GameSetupWizard Step 3 = roster→game-day list (cap 12)→starters; LiveRecordingPage tap grids show the game roster only. Tests: 200 unit / 114 integration / 70 Vitest / 45 Playwright |
 
 Never commit directly to `main` or `develop`.

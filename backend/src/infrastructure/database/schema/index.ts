@@ -2,6 +2,7 @@ export * from './organizations.schema.js';
 export * from './users.schema.js';
 export * from './teams.schema.js';
 export * from './players.schema.js';
+export * from './rosters.schema.js';
 export * from './opponents.schema.js';
 export * from './games.schema.js';
 export * from './stat-events.schema.js';

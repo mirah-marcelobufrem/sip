@@ -5,6 +5,7 @@ import type {
   ILineupSnapshotRepository,
 } from '../../domain/repositories/game.repository.js';
 import type { IPossessionSequenceRepository } from '../../domain/repositories/possession.repository.js';
+import type { IRosterRepository } from '../../infrastructure/database/repositories/roster.repository.js';
 import type { LinkRole, PossessionState, StatEvent, StatType } from '../../domain/entities/game.entity.js';
 import { isThreePointAreaCourt, resolvePossessionChange } from '../../domain/stat-calculators.js';
 
@@ -47,18 +48,53 @@ export type RecordStatEventRawInput = z.input<typeof RecordStatEventInput>;
 
 const SHOT_TYPES: StatType[] = ['2PM', '2PA', '3PM', '3PA'];
 
+// On-court player actions whose author is expected to be on the game roster.
+// Excludes substitution/period/timeout bookkeeping events.
+const PLAYER_STAT_TYPES = new Set<StatType>([
+  '2PM', '2PA', '3PM', '3PA', 'FTM', 'FTA',
+  'OREB', 'DREB', 'AST', 'TO', 'STL', 'BLK', 'DFD', 'PF', 'TF', 'FF',
+]);
+
 export async function recordStatEvent(
   rawInput: RecordStatEventRawInput,
   statEventRepo: IStatEventRepository,
   lineupRepo: ILineupSnapshotRepository,
   gameRepo?: IGameRepository,
   possessionRepo?: IPossessionSequenceRepository,
+  rosterRepo?: IRosterRepository,
 ) {
   const input = RecordStatEventInput.parse(rawInput);
   const lineup = await lineupRepo.findLatestByGameAndTeam(
     input.gameId,
     input.teamId ?? '',
   );
+
+  // U-04 eligibility — warn (never hard-fail) when a player records an action
+  // while not on that side's game-day roster. Best-effort: a failure here must
+  // never lose the event. The flag is consumed by the F-03 capture engine later.
+  if (rosterRepo && gameRepo && input.playerId && input.teamId && PLAYER_STAT_TYPES.has(input.statType)) {
+    try {
+      const game = await gameRepo.findById(input.gameId);
+      const rosterId =
+        game?.homeTeamId === input.teamId ? game?.homeRosterId
+        : game?.awayTeamId === input.teamId ? game?.awayRosterId
+        : null;
+      if (rosterId) {
+        const rosterPlayerIds = await rosterRepo.getPlayerIds(rosterId);
+        if (!rosterPlayerIds.includes(input.playerId)) {
+          console.warn(
+            `[recordStatEvent] eligibility: player ${input.playerId} is not on the ` +
+              `game roster (${rosterId}) for team ${input.teamId} in game ${input.gameId}`,
+          );
+        }
+      }
+    } catch (err) {
+      console.warn(
+        `[recordStatEvent] eligibility check failed for game ${input.gameId}: ` +
+          `${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+  }
 
   // I-02: shot location vs statType validation — warn only, never hard-fail
   // (referee may correct the location after the fact)
